@@ -80,6 +80,18 @@ A tua conta Trello
      for carregada como Power-Up dentro de um board — o que nunca acontece neste projeto.)
 5. Clica **"Create"**. Ficas na página de definições da app.
 
+> **⚠ Vês uma aba «OAuth 2.0» nas definições da app? Ignora-a por completo.** Ela serve o fluxo
+> OAuth 2.0 3LO (login de utilizadores, com URL de retorno/callback e troca de código por token) —
+> **não é o caminho deste projeto**, que usa a key+token da aba **"Trello Auth"** (ou "API Key").
+> Nada nessa aba é preciso para gerar a key:
+> - *"URL(s) de retorno (obrigatório)"* — obrigatório **só se** fores usar OAuth 2.0. Deixa vazio.
+> - Os **scopes** granulares (`read:board:trello`, …) — são do OAuth 2.0; o fluxo clássico usa
+>   apenas `read,write,account`. Podes desmarcar ou simplesmente não salvar.
+> - O **"ID do cliente"** que aparece lá é **público por desenho** (viaja no URL de autorização),
+>   não é segredo. O *client secret* só existiria se escolhesses "Confidencial" — não precisas.
+> - O aviso *"alterações não salvas"* é inofensivo: não afeta a key nem o token.
+> Se preferires deixar a página limpa, desmarca os scopes e clica **Salvar** (ou sai sem salvar).
+
 > **Não precisas de:** publicar o Power-Up, ativar capabilities, plano pago, nem submeter nada a
 > revisão. Staff da Atlassian confirma: a app não precisa de ser pública para a key ser usada.
 
