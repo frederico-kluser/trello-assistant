@@ -24,25 +24,34 @@ const MONTHS = {
 };
 
 /** Frase de data inteira (para removê-la de um comando sem mutilar o nome). */
-const DATE_PHRASE_RE =
+export const DATE_PHRASE_RE =
   /\b(?:amanh[ãa]|hoje|depois de amanh[ãa]|semana que vem|m[êe]s que vem|fim de semana|pr[óo]xim[ao]s?\s+(?:segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo|semana|m[êe]s)|dia \d{1,2}|\d{1,2}[/.]\d{1,2}(?:[/.]\d{2,4})?|\d{1,2} de [a-z]+|(?:pr[óo]xima |na |no )?(?:segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo)(?:-feira)?(?: que vem)?)(?:\s*(?:[àa]s)?\s*\d{1,2}h\d{0,2})?/gi;
 
 const KEYWORD_DATE_RE = /\b(?:prazo|vencimento|data|entrega|due|due date|coloca (?:uma )?data|marca (?:uma )?data|vence)\b/i;
 
-/** Converte expressões de data pt-BR em ISO-8601. Retorna null se não achar. */
-export function parsePtDate(fragment) {
+/**
+ * Converte expressões de data pt-BR em ISO-8601. Retorna null se não achar.
+ * Prazos futuros ficam às 12h (hora local) do dia pedido; "hoje" às 23h, para
+ * não nascer atrasado. O `now` injetável existe para os testes.
+ */
+export function parsePtDate(fragment, now = new Date()) {
   const text = norm(fragment);
   if (!text) return null;
-  const now = new Date();
-  const inDays = (days) => new Date(now.getTime() + days * 86400000).toISOString();
-  const atNoon = (year, month, day) => {
-    const date = new Date(year, month, day, 12, 0, 0, 0);
+
+  const at = (year, month, day, hour = 12) => {
+    const date = new Date(year, month, day, hour, 0, 0, 0);
     return Number.isNaN(date.valueOf()) ? null : date.toISOString();
   };
+  const inDays = (days) => at(now.getFullYear(), now.getMonth(), now.getDate() + days);
 
-  if (/\bhoje\b/.test(text)) return now.toISOString();
+  if (/\bhoje\b/.test(text)) return at(now.getFullYear(), now.getMonth(), now.getDate(), 23);
   if (/depois de amanha/.test(text)) return inDays(2);
   if (/\bamanha\b/.test(text)) return inDays(1);
+
+  const relative = /\b(?:daqui a|em)\s+(\d{1,3})\s+(dias?|semanas?)\b/.exec(text);
+  if (relative) return inDays(Number(relative[1]) * (relative[2].startsWith("semana") ? 7 : 1));
+  if (/(?:semana que vem|proxima semana)/.test(text)) return inDays(7);
+  if (/(?:mes que vem|proximo mes)/.test(text)) return at(now.getFullYear(), now.getMonth() + 1, now.getDate());
 
   if (/fim de semana/.test(text)) {
     const delta = (6 - now.getDay() + 7) % 7 || 7;
@@ -67,14 +76,24 @@ export function parsePtDate(fragment) {
     const monthToken = norm(monthMatch[2]);
     const month = MONTHS[monthToken] ?? (Number.isFinite(Number(monthToken)) ? Number(monthToken) - 1 : null);
     const year = monthMatch[3] ? Number(monthMatch[3]) : now.getFullYear();
-    if (month !== null && day >= 1 && day <= 31) return atNoon(year, month, day);
+    if (month !== null && day >= 1 && day <= 31) return at(year, month, day);
+  }
+
+  // "dia 20" sozinho: este mês se ainda não passou, senão o próximo.
+  const dayOnly = /\bdia\s+(\d{1,2})\b/.exec(text);
+  if (dayOnly) {
+    const day = Number(dayOnly[1]);
+    if (day >= 1 && day <= 31) {
+      const nextMonth = day < now.getDate();
+      return at(now.getFullYear(), now.getMonth() + (nextMonth ? 1 : 0), day);
+    }
   }
 
   return toIsoDate(fragment);
 }
 
 /** Remove artigo + sinônimos de "card" + conectores de referência. */
-const cleanRef = (value) => {
+export const cleanRef = (value) => {
   const original = String(value ?? "").trim();
   const stripped = original
     .replace(/^(no |na |do |da |em |para |pra |ate |até |de |o |um |uma |os |as )+/i, "")
@@ -95,7 +114,7 @@ function splitPair(fragment, connectors = ["para", "pra", "em", "no", "na", "ate
   return { from: cleanRef(match[1]), to: cleanRef(match[2]) };
 }
 
-function describeShort(action) {
+export function describeShort(action) {
   switch (action.type) {
     case "create_card":
       return `criar o card «${action.name}»${action.list ? ` na lista «${action.list}»` : ""}`;
@@ -106,7 +125,13 @@ function describeShort(action) {
     case "update_card":
       return `editar o card «${action.card}»`;
     case "set_due":
-      return action.due ? `colocar prazo em «${action.card}»` : `remover o prazo de «${action.card}»`;
+      if (action.due) return `colocar prazo em «${action.card}»`;
+      if (action.due_complete !== undefined) {
+        return action.due_complete === true || action.due_complete === "true"
+          ? `marcar «${action.card}» como concluído`
+          : `reabrir «${action.card}»`;
+      }
+      return `remover o prazo de «${action.card}»`;
     case "comment_card":
       return `comentar em «${action.card}»`;
     case "archive_card":
@@ -120,7 +145,7 @@ function describeShort(action) {
   }
 }
 
-function describeBoard(board) {
+export function describeBoard(board) {
   const parts = (board.lists ?? []).map((list) => {
     const cards = (board.cards ?? []).filter((card) => card.idList === list.id && !card.closed);
     return `${list.name} com ${cards.length} ${cards.length === 1 ? "card" : "cards"}`;

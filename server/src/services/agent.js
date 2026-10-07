@@ -1,14 +1,23 @@
 /**
- * Agente de planeamento — OpenRouter (xiaomi/mimo-v2.6-pro).
- * Contrato: a fala do usuário + snapshot do board entra; sai um plano JSON
+ * MiMo 2.6 Pro (OpenRouter) — o "System Two" do app: raciocina sobre o board
+ * quando o JEV se abstém (ou está indisponível). Só é chamado como RESERVA.
+ * Contrato: a fala + snapshot do board entram; sai um plano JSON
  *   { speech, needsConfirmation, actions[] }
- * Sem OPENROUTER_API_KEY (ou em falha), degrada para o interpretador local
- * em src/services/intent.js — o app nunca fica inutilizável.
+ * Em falha lança MimoError — quem decide o próximo degrau (interpretador
+ * local) é o orquestrador em planner.js.
  */
+import { performance } from "node:perf_hooks";
 import { config } from "../config.js";
 import { request } from "../lib/http.js";
 import { describeAction, normalizeActions, requiresConfirmation } from "../domain/actions.js";
-import { parseTranscriptLocally } from "./intent.js";
+
+export class MimoError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "MimoError";
+    this.code = code;
+  }
+}
 
 const TODAY = () => new Date().toISOString().slice(0, 10);
 
@@ -101,18 +110,19 @@ export function parsePlan(content, { transcript, board }) {
   };
 }
 
-export async function planFromTranscript({ transcript, board }) {
+/**
+ * @returns {Promise<{plan:{speech:string,actions:object[],needsConfirmation:boolean}, model:string, latencyMs:number}>}
+ * @throws {MimoError}
+ */
+export async function planWithMimo({ transcript, board, context = {} }) {
+  if (!config.openrouter.apiKey) throw new MimoError("no_key", "falta OPENROUTER_API_KEY");
   const text = String(transcript ?? "").trim();
-  if (!text) {
-    return { speech: "Não ouvi nada. Pode repetir?", actions: [], needsConfirmation: false, provider: "local" };
-  }
+  const last = context.lastCardId ? board.cards?.find((card) => card.id === context.lastCardId) : null;
+  const started = performance.now();
 
-  if (!config.openrouter.apiKey) {
-    return { ...parseTranscriptLocally(text, board), provider: "local" };
-  }
-
+  let data;
   try {
-    const { data } = await request(`${config.openrouter.baseUrl}/chat/completions`, {
+    ({ data } = await request(`${config.openrouter.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${config.openrouter.apiKey}`,
@@ -123,7 +133,10 @@ export async function planFromTranscript({ transcript, board }) {
         model: config.openrouter.model,
         messages: [
           { role: "system", content: SYSTEM_PROMPT.replace("{{TODAY}}", TODAY()) },
-          { role: "user", content: `${boardDigest(board)}\n\nO QUE A PESSOA FALOU:\n${text}` },
+          {
+            role: "user",
+            content: `${boardDigest(board)}${last ? `\n\nÚLTIMO CARD CITADO (use para "ele/ela/esse card"): "${last.name}"` : ""}\n\nO QUE A PESSOA FALOU:\n${text}`,
+          },
         ],
         temperature: 0.2,
         max_tokens: config.openrouter.maxTokens,
@@ -133,26 +146,15 @@ export async function planFromTranscript({ transcript, board }) {
         // max_tokens e são cobrados como output.
         reasoning: { effort: config.openrouter.reasoningEffort },
       },
-      // Pense profundo custa latência: damos folga antes de degradar.
+      // Pensar fundo custa latência: damos folga antes de degradar.
       timeoutMs: 120_000,
       retries: 1,
-    });
-
-    const content = data?.choices?.[0]?.message?.content ?? "";
-    const plan = parsePlan(content, { transcript: text, board });
-    if (!plan) {
-      return {
-        ...parseTranscriptLocally(text, board),
-        provider: "local-fallback",
-        warning: "A resposta do modelo não veio em JSON válido; usei o interpretador local.",
-      };
-    }
-    return { ...plan, provider: "openrouter", model: data?.model ?? config.openrouter.model };
+    }));
   } catch (err) {
-    return {
-      ...parseTranscriptLocally(text, board),
-      provider: "local-fallback",
-      warning: `O OpenRouter não respondeu (${err.message}); usei o interpretador local.`,
-    };
+    throw new MimoError("request_failed", `o OpenRouter não respondeu (${err.message})`);
   }
+
+  const plan = parsePlan(data?.choices?.[0]?.message?.content ?? "", { transcript: text, board });
+  if (!plan) throw new MimoError("invalid_json", "a resposta do modelo não veio em JSON válido");
+  return { plan, model: data?.model ?? config.openrouter.model, latencyMs: Math.round(performance.now() - started) };
 }

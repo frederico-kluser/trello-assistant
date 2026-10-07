@@ -8,6 +8,8 @@ import express from "express";
 import { capabilities, config } from "./config.js";
 import { AppError } from "./lib/errors.js";
 import { apiRouter } from "./routes/api.js";
+import { getBoardCached } from "./services/board-cache.js";
+import { warmJev } from "./services/jev.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -63,5 +65,7 @@ app.use((err, _req, res, _next) => {
 app.listen(config.port, () => {
   const caps = capabilities();
   console.log(`\n  ✦ Trello Orbit · http://localhost:${config.port}`);
-  console.log(`    STT: ${caps.stt} · Agente: ${caps.agent} · Board: ${caps.board} (${caps.models.agent})\n`);
+  console.log(`    STT: ${caps.stt} · Motor: ${caps.engine}${caps.models.jev ? ` (${caps.models.jev})` : ""} · Reserva: ${caps.fallback}${caps.models.mimo ? ` (${caps.models.mimo})` : ""} · Board: ${caps.board}\n`);
+  // Pré-aquece o cache do board e o socket do JEV: o 1º comando já sai rápido.
+  void Promise.allSettled([getBoardCached(), warmJev()]);
 });

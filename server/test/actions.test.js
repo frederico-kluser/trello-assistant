@@ -116,3 +116,31 @@ test("applyAction recusa card inexistente com AppError", async () => {
     /Não encontrei nenhum card/,
   );
 });
+test("set_due: concluir NÃO apaga o prazo; sem due nem due_complete remove o prazo; com due define", async () => {
+  const backend = new DemoBoard();
+  let board = await backend.getBoard();
+  const card = board.cards.find((c) => c.name === "Revisar proposta do cliente");
+  assert.ok(card.due, "o card de teste começa com prazo");
+
+  const done = await applyAction({ type: "set_due", card: card.id, due_complete: true }, { board, backend });
+  assert.equal(done.card.dueComplete, true);
+  assert.equal(done.card.due, card.due, "marcar como feito preserva a data");
+  assert.match(done.spoken, /Marquei .* como concluído/);
+
+  board = await backend.getBoard();
+  const cleared = await applyAction({ type: "set_due", card: card.id }, { board, backend });
+  assert.equal(cleared.card.due, null, "sem due e sem due_complete = remover o prazo");
+  assert.match(cleared.spoken, /Removi o prazo/);
+
+  board = await backend.getBoard();
+  const set = await applyAction({ type: "set_due", card: card.id, due: "2030-01-15" }, { board, backend });
+  assert.ok(set.card.due.startsWith("2030-01-15"));
+});
+
+test("applyAction devolve a frase no passado para a fala", async () => {
+  const backend = new DemoBoard();
+  const board = await backend.getBoard();
+  const card = board.cards.find((c) => c.name === "Escrever o README");
+  const moved = await applyAction({ type: "move_card", card: card.id, list: "Feito" }, { board, backend });
+  assert.equal(moved.spoken, "Movi Escrever o README para Feito.");
+});

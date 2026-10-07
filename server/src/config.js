@@ -52,6 +52,25 @@ export const config = {
     maxPromptPrice: num(process.env.OPENROUTER_MAX_PROMPT_PRICE),
     maxCompletionPrice: num(process.env.OPENROUTER_MAX_COMPLETION_PRICE),
   },
+  /**
+   * JEV (TypeSafe "System One") via OpenRouter — faz TODAS as classificações:
+   * intenção, card, lista, composição e clareza, em UMA chamada (as perguntas
+   * correm em paralelo dentro do modelo). Usa a mesma OPENROUTER_API_KEY.
+   * Quando o JEV se abstém (confiança < hitl) ou fica indisponível, o plano
+   * cai para o MiMo 2.6 Pro (System Two).
+   */
+  jev: {
+    enabled: clean(process.env.JEV_ENABLED).toLowerCase() !== "false" && Boolean(clean(process.env.OPENROUTER_API_KEY)),
+    model: clean(process.env.JEV_MODEL) || "typesafe/jev-1.13",
+    url: clean(process.env.JEV_URL) || "https://openrouter.ai/api/alpha/decisions",
+    // Decisão leva ~300 ms: se passar disto, é mais rápido cair no fallback.
+    timeoutMs: Number.parseInt(clean(process.env.JEV_TIMEOUT_MS) || "4000", 10),
+    // Bandas de ação: auto ≥ 0.80 · hitl 0.50–0.79 · abstain < 0.50. A doc do modelo sugere 0.90,
+    // mas decisões REVERSÍVEIS toleram menos (medido no eval: 0.80 executa direto ~40% mais
+    // comandos corretos, com 0 ações erradas). Criar/apagar sempre confirmam, qualquer que seja a banda.
+    autoThreshold: num(process.env.JEV_AUTO_THRESHOLD) ?? 0.8,
+    hitlThreshold: num(process.env.JEV_HITL_THRESHOLD) ?? 0.5,
+  },
   trello: {
     apiKey: clean(process.env.TRELLO_API_KEY),
     token: clean(process.env.TRELLO_API_TOKEN),
@@ -66,13 +85,17 @@ export const config = {
  */
 export function capabilities() {
   const hasTrello = Boolean(config.trello.apiKey && config.trello.token);
+  const hasOpenRouter = Boolean(config.openrouter.apiKey);
   return {
     stt: config.openai.apiKey ? "openai" : "browser",
-    agent: config.openrouter.apiKey ? "openrouter" : "local",
+    // Motor principal das classificações e o que assume quando ele se abstém.
+    engine: config.jev.enabled ? "jev" : hasOpenRouter ? "mimo" : "local",
+    fallback: hasOpenRouter ? "mimo" : "local",
     board: hasTrello ? "trello" : "demo",
     models: {
       stt: config.openai.sttModel,
-      agent: config.openrouter.model,
+      jev: config.jev.enabled ? config.jev.model : null,
+      mimo: hasOpenRouter ? config.openrouter.model : null,
     },
   };
 }
@@ -91,7 +114,7 @@ export function missingSetup() {
   if (!config.openrouter.apiKey) {
     missing.push({
       key: "OPENROUTER_API_KEY",
-      what: `Análise da fala com ${config.openrouter.model}`,
+      what: `Classificação com o JEV (${config.jev.model}) e plano de reserva com ${config.openrouter.model}`,
       where: "https://openrouter.ai/keys",
       impact: "Enquanto isso o app usa o interpretador local de comandos (pt-BR).",
     });

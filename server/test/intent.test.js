@@ -62,12 +62,35 @@ test("comando incompreensível devolve instrução de ajuda", () => {
   assert.match(plan.speech, /cria um card/i);
 });
 
-test("parsePtDate entende amanhã e dias da semana", () => {
-  const tomorrow = parsePtDate("amanhã");
-  const diff = (new Date(tomorrow) - new Date()) / 86400000;
-  assert.ok(diff > 0.9 && diff < 1.1);
+// quarta-feira, 7/out/2026 15:00 (hora local) — relógio fixo para testes determinísticos
+const NOW = new Date(2026, 9, 7, 15, 0, 0);
+const ymd = (iso) => {
+  const d = new Date(iso);
+  return [d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours()];
+};
 
-  const friday = parsePtDate("sexta-feira");
-  assert.ok(friday);
-  assert.equal(new Date(friday).getDay(), 5);
+test("parsePtDate: amanhã, depois de amanhã e hoje (prazo útil, não 'agora+24h')", () => {
+  assert.deepEqual(ymd(parsePtDate("amanhã", NOW)), [2026, 10, 8, 12]);
+  assert.deepEqual(ymd(parsePtDate("depois de amanhã", NOW)), [2026, 10, 9, 12]);
+  assert.deepEqual(ymd(parsePtDate("hoje", NOW)), [2026, 10, 7, 23]);
+});
+
+test("parsePtDate: dias da semana respeitam o 'que vem'", () => {
+  assert.deepEqual(ymd(parsePtDate("sexta-feira", NOW)), [2026, 10, 9, 12]);
+  assert.deepEqual(ymd(parsePtDate("sexta que vem", NOW)), [2026, 10, 16, 12]);
+  assert.equal(new Date(parsePtDate("sexta-feira", NOW)).getDay(), 5);
+});
+
+test("parsePtDate: 'dia 20' sozinho, 'dia 3' (já passou → mês seguinte) e dd/mm", () => {
+  assert.deepEqual(ymd(parsePtDate("dia 20", NOW)), [2026, 10, 20, 12]);
+  assert.deepEqual(ymd(parsePtDate("dia 3", NOW)), [2026, 11, 3, 12]);
+  assert.deepEqual(ymd(parsePtDate("20/08", NOW)), [2026, 8, 20, 12]);
+  assert.deepEqual(ymd(parsePtDate("15 de dezembro", NOW)), [2026, 12, 15, 12]);
+});
+
+test("parsePtDate: relativos ('daqui a 3 dias', 'semana que vem') ", () => {
+  assert.deepEqual(ymd(parsePtDate("daqui a 3 dias", NOW)), [2026, 10, 10, 12]);
+  assert.deepEqual(ymd(parsePtDate("em 2 semanas", NOW)), [2026, 10, 21, 12]);
+  assert.deepEqual(ymd(parsePtDate("semana que vem", NOW)), [2026, 10, 14, 12]);
+  assert.equal(parsePtDate("blá blá", NOW), null);
 });

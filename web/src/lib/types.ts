@@ -1,4 +1,4 @@
-/* Tipos compartilhados do front — espelham o contrato da API do servidor. */
+/* Tipos compartilhados do front. Espelham o contrato da API do servidor. */
 
 export interface TList {
   id: string;
@@ -51,6 +51,53 @@ export interface Board {
   members: { id: string; fullName: string; username: string }[];
 }
 
+/* ── decisões do JEV ───────────────────────────────────────────────────── */
+
+export type Band = "auto" | "hitl" | "abstain";
+
+export interface Decision {
+  id: string;
+  label: string;
+  type: "choice" | "noul";
+  value: string | boolean;
+  display: string;
+  confidence: number;
+  band: Band;
+  used?: boolean;
+  p?: number;
+  top?: { key: string; probability: number }[];
+}
+
+export interface TraceClause {
+  text: string;
+  status: "ok" | "abstain";
+  code: string | null;
+  reason: string | null;
+  decisions: Decision[];
+}
+
+export interface JevTrace {
+  status: "ok" | "abstain" | "unavailable";
+  code: string | null;
+  reason: string | null;
+  model?: string;
+  latencyMs?: number;
+  totalMs?: number;
+  reusedSocket?: boolean;
+  usage?: { input_tokens: number; cost: number };
+  clauses: TraceClause[];
+}
+
+export interface PlanTrace {
+  engine: "jev" | "mimo" | "local";
+  totalMs: number;
+  jev: JevTrace | null;
+  mimo: { status: "ok" | "failed" | "started"; model?: string; latencyMs?: number; reason?: string } | null;
+  fallback: { from: string; to: string; code?: string; reason?: string; mimoReason?: string } | null;
+}
+
+/* ── plano e ações ─────────────────────────────────────────────────────── */
+
 export interface PlannedAction {
   type: string;
   description: string;
@@ -62,9 +109,11 @@ export interface Plan {
   speech: string;
   actions: PlannedAction[];
   needsConfirmation: boolean;
-  provider: string;
+  provider: "jev" | "mimo" | "local" | "local-fallback";
   model: string | null;
+  band: Band | null;
   warning: string | null;
+  trace: PlanTrace;
 }
 
 export interface MissingSetup {
@@ -77,9 +126,10 @@ export interface MissingSetup {
 export interface StatusPayload {
   capabilities: {
     stt: "openai" | "browser";
-    agent: "openrouter" | "local";
+    engine: "jev" | "mimo" | "local";
+    fallback: "mimo" | "local";
     board: "trello" | "demo";
-    models: { stt: string; agent: string };
+    models: { stt: string; jev: string | null; mimo: string | null };
   };
   backend: string;
   boardName: string;
@@ -91,24 +141,25 @@ export interface ActionResult {
   ok: boolean;
   type: string;
   message: string;
+  spoken: string;
   cardId: string | null;
 }
 
-export type Phase =
-  | "idle"
-  | "listening"
-  | "transcribing"
-  | "thinking"
-  | "confirming"
-  | "executing"
-  | "speaking"
-  | "error";
+export type Phase = "idle" | "listening" | "transcribing" | "thinking" | "confirming" | "executing" | "speaking";
 
 export interface FeedItem {
   id: number;
-  kind: "you" | "plan" | "done" | "error" | "info";
+  kind: "you" | "jev" | "mimo" | "plan" | "done" | "error" | "info";
   text: string;
   at: string;
+}
+
+/** Linha do pipeline de um comando (voz → JEV → [MiMo] → Trello). */
+export interface PipelineStep {
+  key: "stt" | "jev" | "mimo" | "trello";
+  state: "idle" | "active" | "done" | "skipped" | "warn" | "failed";
+  ms?: number;
+  note?: string;
 }
 
 export interface ToastData {

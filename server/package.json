@@ -3,13 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Servidor do Trello Orbit — STT (OpenAI), agente (OpenRouter MiMo 2.6 Pro) e proxy da API do Trello.",
+  "description": "Servidor do Trello Orbit — STT (OpenAI), classificação (JEV), reserva (MiMo 2.6 Pro) e proxy da API do Trello.",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "check": "node --check src/index.js && node --check src/config.js && node --check src/lib/http.js && node --check src/lib/errors.js && node --check src/domain/actions.js && node --check src/services/stt.js && node --check src/services/agent.js && node --check src/services/intent.js && node --check src/services/trello.js && node --check src/routes/api.js",
-    "test": "node --test"
+    "check": "node --check src/index.js && node --check src/config.js && node --check src/lib/http.js && node --check src/lib/errors.js && node --check src/domain/actions.js && node --check src/services/stt.js && node --check src/services/agent.js && node --check src/services/intent.js && node --check src/services/trello.js && node --check src/services/jev.js && node --check src/services/jev-planner.js && node --check src/services/planner.js && node --check src/services/board-cache.js && node --check src/routes/api.js && node --check scripts/eval-jev.mjs",
+    "test": "node --test",
+    "eval:jev": "node scripts/eval-jev.mjs"
   },
   "engines": {
     "node": ">=20"

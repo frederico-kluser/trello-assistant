@@ -174,9 +174,13 @@ export function describeAction(action, board = null) {
     case "update_card":
       return `editar o card «${cardName(action.card)}»`;
     case "set_due":
-      return action.due
-        ? `colocar prazo ${formatDate(toIsoDate(action.due))} em «${cardName(action.card)}»`
-        : `remover o prazo de «${cardName(action.card)}»`;
+      if (action.due) return `colocar prazo ${formatDate(toIsoDate(action.due))} em «${cardName(action.card)}»`;
+      if (action.due_complete !== undefined) {
+        return truthy(action.due_complete)
+          ? `marcar «${cardName(action.card)}» como concluído`
+          : `reabrir «${cardName(action.card)}»`;
+      }
+      return `remover o prazo de «${cardName(action.card)}»`;
     case "comment_card":
       return `comentar em «${cardName(action.card)}»`;
     case "archive_card":
@@ -190,11 +194,57 @@ export function describeAction(action, board = null) {
   }
 }
 
+/** Frase no passado para a fala depois de executar ("Movi X para Y."). Calcule com o board ANTES da ação. */
+export function describeDone(action, board = null) {
+  const card = (ref) => {
+    if (!board) return String(ref ?? "");
+    try {
+      return findCard(board, ref).name;
+    } catch {
+      return String(ref ?? "");
+    }
+  };
+  const list = (ref) => {
+    if (!board) return String(ref ?? "");
+    try {
+      return findList(board, ref).name;
+    } catch {
+      return String(ref ?? "");
+    }
+  };
+  switch (action.type) {
+    case "create_card":
+      return `Criei o card ${action.name}${action.list ? ` na lista ${list(action.list)}` : ""}.`;
+    case "delete_card":
+      return `Apaguei o card ${card(action.card)}.`;
+    case "move_card":
+      return `Movi ${card(action.card)} para ${list(action.list)}.`;
+    case "update_card":
+      return `Atualizei o card ${card(action.card)}.`;
+    case "set_due":
+      if (action.due) return `Defini o prazo de ${card(action.card)} para ${formatDate(toIsoDate(action.due))}.`;
+      if (action.due_complete !== undefined) {
+        return truthy(action.due_complete) ? `Marquei ${card(action.card)} como concluído.` : `Reabri ${card(action.card)}.`;
+      }
+      return `Removi o prazo de ${card(action.card)}.`;
+    case "comment_card":
+      return `Comentei em ${card(action.card)}.`;
+    case "archive_card":
+      return `Arquivei ${card(action.card)}.`;
+    case "create_list":
+      return `Criei a lista ${action.name}.`;
+    case "add_checklist_item":
+      return `Adicionei o item à checklist de ${card(action.card)}.`;
+    default:
+      return "Feito.";
+  }
+}
+
 /**
  * Executa uma única ação contra o backend (Trello real ou modo demo).
  * Lança AppError com mensagem em pt-BR quando algo não bate.
  */
-export async function applyAction(action, { board, backend }) {
+async function applyActionRaw(action, { board, backend }) {
   switch (action.type) {
     case "create_card": {
       const name = String(action.name ?? "").trim();
@@ -242,7 +292,10 @@ export async function applyAction(action, { board, backend }) {
     case "set_due": {
       const card = findCard(board, action.card);
       const due = toIsoDate(action.due);
-      const patch = { due };
+      const patch = {};
+      // Só marcar como feito NÃO pode apagar o prazo (due:null limparia a data).
+      // Sem `due` e sem `due_complete` = remover o prazo.
+      if (due || action.due_complete === undefined) patch.due = due;
       if (action.due_complete !== undefined) patch.dueComplete = truthy(action.due_complete);
       const updated = await backend.updateCard(card.id, patch);
       return { type: action.type, message: describeAction(action, board), card: updated ?? card };
@@ -283,4 +336,10 @@ export async function applyAction(action, { board, backend }) {
     default:
       throw new AppError("bad_request", `Ação desconhecida: ${action.type}`, { status: 422 });
   }
+}
+/** Executa a ação e devolve também `spoken` (passado), calculado com o board anterior à mudança. */
+export async function applyAction(action, ctx) {
+  const spoken = describeDone(action, ctx.board);
+  const result = await applyActionRaw(action, ctx);
+  return { ...result, spoken };
 }

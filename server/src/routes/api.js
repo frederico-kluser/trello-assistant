@@ -2,10 +2,13 @@ import { Router } from "express";
 import multer from "multer";
 import { capabilities, config, missingSetup } from "../config.js";
 import { AppError, SETUP_GUIDE } from "../lib/errors.js";
-import { transcribeAudio } from "../services/stt.js";
-import { planFromTranscript } from "../services/agent.js";
+import { transcribeAudio, vocabularyPrompt } from "../services/stt.js";
+import { planCommand } from "../services/planner.js";
+import { classifyConfirmation } from "../services/jev-planner.js";
+import { warmJev } from "../services/jev.js";
 import { applyAction, describeAction, normalizeActions, requiresConfirmation } from "../domain/actions.js";
 import { getBackend } from "../services/trello.js";
+import { getBoardCached, patchBoard, peekBoard, primeBoard, refreshBoardSoon, slimBoard } from "../services/board-cache.js";
 
 export const apiRouter = Router();
 
@@ -25,7 +28,7 @@ apiRouter.get("/status", async (_req, res) => {
   const backend = getBackend();
   let boardName = "—";
   try {
-    boardName = (await backend.getBoard()).name;
+    boardName = (await getBoardCached({ maxAgeMs: 60_000 })).name;
   } catch {
     /* board indisponível ainda */
   }
@@ -38,9 +41,18 @@ apiRouter.get("/status", async (_req, res) => {
   });
 });
 
-apiRouter.get("/board", async (_req, res) => {
-  const board = await getBackend().getBoard();
-  res.json({ board });
+apiRouter.get("/board", async (req, res) => {
+  const board = await getBoardCached({ maxAgeMs: req.query.fresh ? 0 : 30_000 });
+  res.json({ board: slimBoard(board) });
+});
+
+/**
+ * Chamado quando a gravação COMEÇA: enquanto a pessoa fala (2–4 s) o servidor
+ * aquece o socket do JEV e atualiza o board — quando o texto chegar, tudo já está quente.
+ */
+apiRouter.post("/warm", (_req, res) => {
+  res.status(202).json({ ok: true });
+  void Promise.allSettled([getBoardCached({ maxAgeMs: 10_000 }), warmJev()]);
 });
 
 /* ── Voz → texto (STT OpenAI) ─────────────────────────────────────────── */
@@ -53,37 +65,79 @@ apiRouter.post("/stt", upload.single("audio"), async (req, res) => {
     buffer: req.file.buffer,
     filename: req.file.originalname,
     mimetype: req.file.mimetype,
+    prompt: vocabularyPrompt(peekBoard()),
   });
   res.json(result);
 });
 
-/* ── Texto → plano de ações (OpenRouter MiMo 2.6 Pro) ─────────────────── */
+/* ── Texto → plano de ações (JEV → MiMo → local) ──────────────────────── */
 
+/**
+ * Com `?stream=1` a resposta é um fluxo SSE: o navegador recebe o veredito do
+ * JEV na hora (~0,5 s) e, se ele se abstiver, vê "MiMo assumiu" enquanto o
+ * raciocínio máximo (alguns segundos) ainda corre. Sem o parâmetro, JSON único.
+ */
 apiRouter.post("/agent", async (req, res) => {
   const transcript = String(req.body?.transcript ?? "").trim();
   if (!transcript) {
     throw new AppError("bad_request", "Envie o texto transcrito em «transcript».", { status: 400 });
   }
+  const context = {
+    lastCardId: typeof req.body?.context?.lastCardId === "string" ? req.body.context.lastCardId : null,
+  };
 
-  const backend = getBackend();
-  const board = await backend.getBoard();
-  const plan = await planFromTranscript({ transcript, board });
+  const board = await getBoardCached({ maxAgeMs: 30_000 });
+  const stream = req.query.stream === "1";
 
-  const actions = normalizeActions(plan.actions).map((action) => ({
-    ...action,
-    description: describeAction(action, board),
-    requiresConfirmation: requiresConfirmation(action),
-  }));
+  if (stream) {
+    res.status(200);
+    res.setHeader("content-type", "text/event-stream; charset=utf-8");
+    res.setHeader("cache-control", "no-cache, no-transform");
+    res.setHeader("x-accel-buffering", "no");
+    res.flushHeaders();
+  }
+  const send = (event) => {
+    if (stream) res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
 
-  res.json({
-    speech: plan.speech,
-    needsConfirmation: plan.needsConfirmation || actions.some((action) => action.requiresConfirmation),
-    actions,
-    provider: plan.provider,
-    model: plan.model ?? null,
-    warning: plan.warning ?? null,
-    board,
-  });
+  try {
+    const plan = await planCommand({ transcript, board, context, onEvent: send });
+    const actions = normalizeActions(plan.actions).map((action) => ({
+      ...action,
+      description: action.description ?? describeAction(action, board),
+      requiresConfirmation: requiresConfirmation(action),
+    }));
+    const payload = {
+      speech: plan.speech,
+      needsConfirmation: plan.needsConfirmation || actions.some((action) => action.requiresConfirmation),
+      actions,
+      provider: plan.provider,
+      model: plan.model ?? null,
+      band: plan.band ?? null,
+      warning: plan.warning ?? null,
+      trace: plan.trace,
+    };
+    if (stream) {
+      send({ type: "plan", ...payload });
+      res.end();
+    } else {
+      res.json(payload);
+    }
+  } catch (err) {
+    if (!stream) throw err;
+    send({
+      type: "error",
+      error: { code: err instanceof AppError ? err.code : "internal_error", message: err instanceof AppError ? err.message : "Erro interno do servidor." },
+    });
+    res.end();
+  }
+});
+
+/** "sim" / "cancela" falados depois de uma pergunta de confirmação — classificados pelo JEV. */
+apiRouter.post("/confirm", async (req, res) => {
+  const text = String(req.body?.text ?? "").trim();
+  if (!text) throw new AppError("bad_request", "Envie a resposta falada em «text».", { status: 400 });
+  res.json(await classifyConfirmation(text, { pending: String(req.body?.pending ?? "") }));
 });
 
 /* ── Execução das ações (com confirmação obrigatória) ─────────────────── */
@@ -104,15 +158,19 @@ apiRouter.post("/actions", async (req, res) => {
   }
 
   const backend = getBackend();
+  let board = await getBoardCached({ maxAgeMs: 30_000 });
   const results = [];
   for (const action of actions) {
-    const board = await backend.getBoard(); // snapshot fresco p/ resolver referências
-    const result = await applyAction(action, { board, backend });
-    results.push({ ok: true, type: result.type, message: result.message, cardId: result.card?.id ?? null });
+    // O resultado devolvido pelo Trello é aplicado ao cache: a próxima ação do
+    // plano já enxerga o efeito da anterior, sem reler o board inteiro.
+    const applied = await applyAction(action, { board, backend });
+    board = patchBoard(board, [applied]);
+    results.push({ ok: true, type: applied.type, message: applied.message, spoken: applied.spoken, cardId: applied.card?.id ?? null });
   }
 
-  const board = await backend.getBoard();
-  res.json({ ok: true, results, board });
+  primeBoard(board);
+  refreshBoardSoon(); // reconcilia em background com o que mudou fora do app
+  res.json({ ok: true, results, board: slimBoard(board) });
 });
 
 /* ── Setup helper: listar boards do usuário ───────────────────────────── */

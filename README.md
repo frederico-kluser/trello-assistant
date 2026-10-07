@@ -1,17 +1,22 @@
 # 🪐 Trello Orbit
 
-**Pilote seu board do Trello por voz.** Você fala → a API STT da OpenAI transcreve → o
-**MiMo 2.6 Pro** (OpenRouter) entende e planeja → o app confirma com você, executa pela API do
-Trello e responde **em áudio**, enquanto os cards dançam em órbita ao redor do botão de record.
+**Pilote seu board do Trello por voz.** Você fala → a **OpenAI** transcreve → o **JEV** (modelo
+"System One" da TypeSafe, via OpenRouter) decide a intenção, o card e a lista em **~0,4 s** → o app
+executa pela API do Trello e responde em áudio. O **MiMo 2.6 Pro** só entra quando o próprio JEV diz
+que não consegue operar com segurança.
 
-> Microfone no centro, cards orbitando por anéis inspirados em Júpiter: o card que você menciona
-> vem **para perto**, ganha destaque e a ação só acontece depois da sua confirmação.
+![Trello Orbit: o board como um sistema solar, com o pipeline e as decisões do JEV ao lado](docs/img/orbit-jev.webp)
+
+> O card que você cita **vem para perto** do planeta; ao lado, o painel mostra o pipeline com os
+> tempos reais e cada decisão do JEV com a sua confiança.
 
 ---
 
 ## Índice
 
 - [O que ele faz](#o-que-ele-faz)
+- [JEV primeiro, MiMo de reserva](#jev-primeiro-mimo-de-reserva)
+- [Microfone: como funciona e como diagnosticar](#microfone-como-funciona-e-como-diagnosticar)
 - [Início rápido (sem nenhuma chave)](#início-rápido-sem-nenhuma-chave)
 - [Configuração completa (.env)](#configuração-completa-env)
 - [Credenciais passo a passo](#credenciais-passo-a-passo)
@@ -31,20 +36,22 @@ Trello e responde **em áudio**, enquanto os cards dançam em órbita ao redor d
 
 ### Fluxo completo
 
-1. **Você toca o botão de record** (o "planeta" central) e fala o que quer.
-2. O áudio vai para o servidor e é transcrito pela **API STT da OpenAI**
-   (`gpt-4o-mini-transcribe` por padrão, `whisper-1` opcional).
-3. A transcrição vai para o **OpenRouter**, modelo **`xiaomi/mimo-v2.6-pro`** com
-   **esforço de raciocínio no máximo** (`reasoning: { effort: "max" }`), junto com um
-   snapshot do seu board — ele devolve um **plano JSON** de ações + a frase que o app vai falar.
-4. O app **anuncia em áudio** o que vai fazer. Para **criar** ou **apagar**, ele **pede confirmação**
-   (modal com hold-to-confirm para exclusão). Para mover/prazo/comentar, executa direto.
-5. O servidor aplica as ações na **API REST v1 do Trello** (ou num board demo) e o app responde em
-   áudio, com toasts e animação nos cards.
+1. **Você toca no planeta** (ou aperta `Espaço`) e fala. O app **para de ouvir sozinho** quando você
+   termina (detecção de fala) e envia só o trecho com voz.
+2. A **API STT da OpenAI** transcreve (`gpt-4o-mini-transcribe`), recebendo o nome das suas listas e
+   cards como dica de vocabulário.
+3. O **JEV** classifica tudo numa única chamada paralela: intenção, card, lista, "é uma ação só?",
+   "a fala está clara?". Código determinístico extrai o que o JEV não gera (títulos, datas).
+4. Se o JEV opera, o plano sai em **~0,4 s**. Se ele se abstém (confiança < 50%, fala ininteligível,
+   pedido composto dependente…), a tela **mostra o motivo na hora** e o **MiMo 2.6 Pro** (raciocínio
+   máximo) assume.
+5. **Mover, prazo, comentar…** executam direto quando a confiança é alta; confiança média pede um
+   ok; **criar/apagar sempre confirmam** (apagar só segurando o botão). Você pode confirmar **por
+   voz** («sim», «cancela»): o JEV classifica a resposta.
+6. O servidor aplica na **API REST do Trello** (ou num board demo) e o app responde em áudio.
 
-Tudo isso funciona **sem nenhuma chave configurada**: o app degrada com elegância
-(STT do navegador · interpretador local pt-BR · board de demonstração) e mostra no painel exatamente
-o que falta configurar.
+Tudo funciona **sem chaves**: o app degrada com elegância (STT do navegador · interpretador local
+pt-BR · board de demonstração) e mostra no painel exatamente o que falta.
 
 ### Ações suportadas na API do Trello
 
@@ -64,6 +71,60 @@ o que falta configurar.
 O servidor também expõe **`GET /api/trello/boards`** (lista seus boards, útil para achar o
 `TRELLO_BOARD_ID`) e trata erros da API do Trello com códigos claros
 (`trello_unauthorized`, `trello_not_found`, …).
+
+---
+
+## JEV primeiro, MiMo de reserva
+
+O **JEV** não é um LLM: é um modelo *System One* que recebe um texto + perguntas tipadas e devolve
+**decisões com probabilidades calibradas**, sem gerar texto. As perguntas de uma chamada são avaliadas
+**em paralelo dentro do modelo** (~0,4 s no total, ~US$ 0,0001 por comando). Por isso cada comando
+vira **uma** requisição, nunca uma cadeia:
+
+| Pergunta (tipo) | Para quê |
+|---|---|
+| **Intenção** (`choice`: criar, apagar, mover, prazo, concluir, renomear, comentar, arquivar, lista, checklist, consultar, outro) | decide o que fazer |
+| **Card** (`choice` entre os cards abertos do board, ≤ 255) | resolve "o contador" → *Ligar para o contador* |
+| **Lista** (`choice` entre as listas) | destino de mover / onde criar |
+| **Tipo de consulta** (`choice`) | "o que tenho?" vs. "o que há em Fazendo?" |
+| **Fala clara?** · **Várias ações?** (`noul`) | *guardas*: só bloqueiam, nunca pedem confirmação por incerteza leve |
+
+O que o JEV **não** faz fica com código: título do card, datas ("dia 20", "semana que vem") e texto
+de comentário. Comandos compostos (*«move A para fazendo e apaga B»*) são divididos em cláusulas e
+**cada uma vai ao JEV em paralelo**.
+
+**Bandas de confiança** (`JEV_AUTO_THRESHOLD`, padrão 0,80): `auto` executa · `hitl` (0,50–0,79) pede um
+ok · `abstain` (< 0,50) passa a vez ao **MiMo 2.6 Pro**, que roda com raciocínio máximo. Criar e
+apagar confirmam sempre. Se o JEV ficar indisponível (créditos, rede, 5xx) acontece o mesmo e o motivo
+aparece na tela.
+
+![O JEV se abstém e o MiMo assume, com o motivo visível em tempo real](docs/img/orbit-fallback-mimo.webp)
+
+O `/api/agent?stream=1` transmite eventos (SSE): o veredito do JEV chega em ~0,5 s mesmo que o MiMo
+leve 8 s depois. Medido pelo túnel público: veredito em **0,9 s**, plano final em 9,1 s.
+
+**Calibração** (`npm run eval:jev`, usa o board demo e chamadas reais): 26 de 27 corretos, 1 abstenção,
+**0 ações erradas**, p50 ≈ 425 ms. Abster-se é seguro (o MiMo resolve); agir errado é o único erro grave,
+e o eval falha se acontecer. Rode-o sempre que mexer nas perguntas em `services/jev-planner.js`.
+
+---
+
+## Microfone: como funciona e como diagnosticar
+
+A captura **não usa `MediaRecorder`** (webm/opus, a fonte clássica de "nunca transcreve"): o áudio é
+capturado como **PCM via AudioWorklet** e enviado como **WAV 16 kHz mono**.
+
+- **Para sozinho**: detecção de fala com piso de ruído calibrado (um ventilador constante vira
+  "fundo", não "fala"). Fala e ~1,1 s de silêncio encerram a gravação.
+- **Aparas e ganho**: só o trecho com voz sobe (menos bytes, STT mais rápido) e microfones baixos
+  ganham até 10× de volume.
+- **Diz por que falhou**: dispositivo mudo (*«O microfone «X» não captou som»*), sem fala, permissão
+  negada, microfone em uso. Gravação muda **nem chega à OpenAI**.
+- **Menu do microfone** (barra superior): escolha o dispositivo, ative **áudio bruto** (sem
+  cancelamento de eco/ruído) e use o **medidor de nível ao vivo** para ver se ele capta algo.
+- **Duas vias de transcrição**: a legenda ao vivo do navegador (quando existe) aparece enquanto você
+  fala e vira reserva se a OpenAI falhar.
+- **Atalhos**: `Espaço` fala/para · `Esc` cancela · `Enter` confirma (apagar exige segurar o botão).
 
 ---
 
@@ -104,8 +165,12 @@ cada campo:
 | `OPENAI_API_KEY` | transcrição de voz (STT) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
 | `OPENAI_STT_MODEL` | `gpt-4o-mini-transcribe` (padrão), `gpt-4o-transcribe` ou `whisper-1` | — |
 | `OPENAI_STT_LANGUAGE` | idioma da transcrição (padrão `pt`) | — |
-| `OPENROUTER_API_KEY` | análise da fala com o MiMo | [openrouter.ai/keys](https://openrouter.ai/keys) |
-| `OPENROUTER_MODEL` | padrão `xiaomi/mimo-v2.6-pro` | — |
+| `OPENROUTER_API_KEY` | **JEV** (classificação) **e** MiMo (reserva): a mesma chave serve aos dois | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `JEV_ENABLED` | `false` desliga o JEV (vai direto ao MiMo) | — |
+| `JEV_MODEL` | padrão `typesafe/jev-1.13` (use `~typesafe/jev-latest` para acompanhar versões) | — |
+| `JEV_AUTO_THRESHOLD` / `JEV_HITL_THRESHOLD` | bandas: `auto` ≥ 0,80 · `hitl` ≥ 0,50 · abaixo disso o JEV se abstém | — |
+| `JEV_TIMEOUT_MS` | tempo máximo do JEV antes de cair no MiMo (padrão `4000`) | — |
+| `OPENROUTER_MODEL` | modelo de **reserva**: padrão `xiaomi/mimo-v2.6-pro` | — |
 | `OPENROUTER_REASONING_EFFORT` | esforço de raciocínio: `max` (padrão) · `xhigh` · `high` · `medium` · `low` · `minimal` · `none` | — |
 | `OPENROUTER_MAX_TOKENS` | teto de saída (inclui reasoning tokens), padrão `16000` | — |
 | `OPENROUTER_MAX_PROMPT_PRICE` / `..._COMPLETION_PRICE` | teto de custo opcional (USD por 1M tokens) | — |
@@ -138,8 +203,9 @@ Resumo do Trello (a parte manual):
 
 ## Comandos de voz
 
-O agente (MiMo) entende linguagem natural. O interpretador local de fallback cobre a gramática
-essencial em pt-BR:
+O JEV entende linguagem natural, inclusive verbos coloquiais (*«põe», «joga», «vai pra», «exclui»*) e
+menções parciais (*«o contador»* → *Ligar para o contador*). O interpretador local, último degrau da
+escada, cobre a gramática essencial em pt-BR:
 
 | Fale algo como | Resultado |
 |---|---|
@@ -166,9 +232,11 @@ Datas aceitas: *hoje, amanhã, depois de amanhã, semana que vem, sexta(-feira),
 |---|---|---|
 | `GET` | `/api/health` | liveness |
 | `GET` | `/api/status` | capacidades ativas + checklist do que falta configurar |
-| `GET` | `/api/board` | snapshot normalizado do board (Trello ou demo) |
-| `POST` | `/api/stt` | multipart `audio` → transcrição (OpenAI STT) |
-| `POST` | `/api/agent` | `{ transcript }` → plano `{ speech, actions[], needsConfirmation }` |
+| `GET` | `/api/board` | snapshot do board (cache de 30 s; `?fresh=1` força releitura) |
+| `POST` | `/api/warm` | aquece o socket do JEV e o board (chamado quando a gravação começa) |
+| `POST` | `/api/stt` | multipart `audio` (WAV/webm/…) → transcrição (OpenAI STT) |
+| `POST` | `/api/agent` | `{ transcript, context? }` → plano `{ speech, actions[], needsConfirmation, band, trace }`; com `?stream=1` responde em **SSE** (`jev` → `mimo` → `plan`) |
+| `POST` | `/api/confirm` | `{ text }` → `yes` \| `no` \| `unclear` (o JEV classifica o «sim»/«cancela» falado) |
 | `POST` | `/api/actions` | `{ actions[], confirmed }` → executa; **428** se criar/apagar sem `confirmed: true` |
 | `GET` | `/api/trello/boards` | lista boards (para achar o `TRELLO_BOARD_ID`) |
 
@@ -182,25 +250,26 @@ Contrato de erro estável em todas as rotas:
 
 ## Design, animações e acessibilidade
 
-- **Órbita 3D de verdade**: cada lista é um anel inclinado (66°, quase de canto como os de Júpiter),
-  com fragmentos de arco, moonlets e cards que giram sempre de pé (contra-rotação sincronizada).
-- **Card referenciado vem para perto**: `translateZ` + escala + brilho na borda (beam animado) +
-  foco no painel de voo.
-- **Criar** = nasce desfocado e cresce com bloom + **confete**; **apagar** = dissolve com blur;
-  **mover** = desliza entre anéis.
-- **Record como planeta**: pulsos com o nível real do microfone (Web Audio `AnalyserNode`),
-  waveform ao gravar, estados claros (gravando/transcrevendo/pensando/executando/falando).
-- **Motion UI** (motion.dev): componentes `overlay`, `toast-stack`, `confetti`, `border-beam`,
-  `hold-to-confirm`, `multi-state-button` do registry `@motion`, com tokens do `motion.theme.ts`
-  (springs `snap/ui/gentle/lively/ambient`). Sem framer-motion; só `motion/react`.
-- **Tema shadcn semântico** (paleta espaço profundo + cobre de Júpiter): componentes só usam
-  classes semânticas (`bg-card`, `text-primary`…), os valores vivem em `web/src/index.css`.
-- **Responsivo**: mobile = 3 anéis + cards maiores para toque (escala mínima 0.55) e modal em
-  bottom-sheet; desktop = 5 anéis e painel lateral.
-- **Acessibilidade**: `prefers-reduced-motion` respeitado (órbita congela, tudo continua legível),
-  `aria-live` para o estado do fluxo, labels SR-only, foco preso no modal, alvos de toque ≥ 44 px,
-  contraste AA nos tokens.
-- **Feedback em 4 canais coerentes**: fala (TTS pt-BR), plano em texto, toasts e leitor de tela.
+- **Tela cheia, de verdade**: o palco orbital ocupa **toda a área livre**. Os anéis são elipses que
+  vão até as bordas (geometria recalculada a cada resize; cada anel só recebe os cards que cabem na
+  sua circunferência, o resto vira um marcador **+N** e fica no trilho de listas).
+- **HUD em três zonas**: trilho esquerdo com **todas** as listas e cards · palco com o planeta ·
+  trilho direito com **Decisões** (pipeline ao vivo + o que o JEV decidiu, pergunta por pergunta),
+  **Histórico** e **Card**. Abaixo de 1280 px o trilho esquerdo vira a aba *Listas*; no celular os
+  painéis descem para baixo do palco.
+- **Zero re-render por frame**: um único loop `requestAnimationFrame` posiciona todos os cards
+  direto no DOM (profundidade: frente maior e nítida, fundo menor e apagado; pausa suave no hover).
+- **O card citado vem para perto**: flutua acima do planeta com brilho, enquanto o resto escurece.
+  **Criar** nasce do planeta com eco + **confete**; **apagar** dissolve com blur.
+- **Confirmação inline**: nada de modal bloqueando a órbita. Apagar usa *hold-to-confirm*.
+- **Planeta = botão de gravar**: bandas de Júpiter, reage ao volume da voz e tem um estado por fase
+  (ouvindo, pensando, confirmando…).
+- **Sistema visual**: um único acento (cobre) sobre azul-noite com grão sutil, **Geist** e Geist Mono
+  self-hosted (`@fontsource-variable`), números tabulares, Tailwind v4 com tokens shadcn semânticos
+  (`web/src/index.css`) e **Motion UI** (`toast-stack`, `confetti`, `hold-to-confirm`,
+  `multi-state-button`, tema em `motion.theme.ts`).
+- **Acessibilidade**: `prefers-reduced-motion` congela a órbita (tudo segue legível), `aria-live` no
+  estado do fluxo, papéis `tablist`/`alertdialog`/`meter`, foco visível, tudo operável por teclado.
 
 ---
 
@@ -208,32 +277,36 @@ Contrato de erro estável em todas as rotas:
 
 ```
 trello-assistant/
-├── README.md
-├── LICENSE                    # MIT
-├── .env.example               # única fonte de variáveis (sem valores reais)
+├── README.md · LICENSE · .env.example
 ├── docs/
-│   ├── PROXIMOS-PASSOS.html   # o que fazer depois de clonar (chaves, deploy, checklist)
-│   └── UX-AUDIT.json          # auditoria UX/UI (framework de 195 princípios)
-├── server/                    # proxy de credenciais + API
+│   ├── TRELLO-GUIA-COMPLETO.md  # tutorial guiado das credenciais do Trello
+│   ├── PROXIMOS-PASSOS.html     # checklist pós-clone
+│   └── img/                     # capturas (board demo)
+├── pesquisas/                   # dossiê de pesquisa profunda da API do Trello
+├── server/
 │   ├── src/
-│   │   ├── index.js           # Express + estático (web/dist) + /docs
-│   │   ├── config.js          # lê .env, capacidades, checklist de setup
-│   │   ├── lib/http.js        # fetch com retry + Retry-After
-│   │   ├── lib/errors.js      # contrato de erros
-│   │   ├── domain/actions.js  # schema de ações + resolução de referências
+│   │   ├── index.js · config.js · lib/{http,errors}.js
+│   │   ├── domain/actions.js      # ações, resolução de referências, frases no passado
+│   │   ├── routes/api.js          # REST + SSE (/agent?stream=1) + /confirm + /warm
 │   │   └── services/
-│   │       ├── stt.js         # OpenAI /v1/audio/transcriptions
-│   │       ├── agent.js       # OpenRouter xiaomi/mimo-v2.6-pro (plano JSON)
-│   │       ├── intent.js      # interpretador local pt-BR (fallback)
-│   │       └── trello.js      # REST v1 + board demo em memória
-│   └── test/                  # testes do domínio e do parser (node --test)
-└── web/                       # front React + Vite + Tailwind + Motion
+│   │       ├── jev.js             # cliente do JEV (keep-alive, retry curto, erros classificados)
+│   │       ├── jev-planner.js     # perguntas, bandas, extração, cláusulas em paralelo
+│   │       ├── planner.js         # JEV → MiMo → local (+ eventos de progresso)
+│   │       ├── agent.js           # MiMo 2.6 Pro (reserva)
+│   │       ├── stt.js             # OpenAI STT (+ vocabulário do board)
+│   │       ├── board-cache.js     # cache em memória, patch pós-escrita
+│   │       ├── intent.js          # interpretador local pt-BR (último degrau)
+│   │       └── trello.js          # REST v1 + board demo
+│   ├── evals/commands.json        # casos do eval do JEV (sintéticos)
+│   ├── scripts/eval-jev.mjs       # `npm run eval:jev`
+│   └── test/                      # node --test (48 testes, sem rede)
+└── web/
+    ├── test/audio.test.ts         # VAD, WAV, reamostragem (node --test)
     └── src/
-        ├── App.tsx            # fluxo: voz → plano → confirmação → execução
-        ├── components/        # OrbitBoard, VoiceCore, TaskCard, ConfirmDialog…
-        ├── hooks/useRecorder.ts
-        ├── lib/               # api.ts, speech.ts, types.ts
-        └── index.css          # design tokens (shadcn semantics)
+        ├── App.tsx                # orquestração: voz → JEV → confirmação → execução
+        ├── hooks/useVoiceCapture.ts   # PCM/AudioWorklet, VAD, dispositivos, diagnóstico
+        ├── lib/{api,audio,speech,types}.ts
+        └── components/            # OrbitStage, Planet, CommandDock, DecisionPanel, ListRail…
 ```
 
 ---
@@ -241,18 +314,19 @@ trello-assistant/
 ## Testes e verificação
 
 ```bash
-# backend: 17 testes (domínio, resolução de referências, parser pt-BR)
-cd server && npm test
-
-# sintaxe de todos os módulos
-cd server && npm run check
-
-# front: type-check + build de produção
-cd web && npm run build
+cd server && npm test          # 48 testes offline: domínio, parser, planner JEV, cadeia JEV→MiMo→local
+cd server && npm run check     # sintaxe de todos os módulos
+cd server && npm run eval:jev  # calibração do JEV com chamadas reais (≈ US$ 0,003; precisa de OPENROUTER_API_KEY)
+cd web    && npm test          # 9 testes de áudio (VAD, WAV, reamostragem, normalização)
+cd web    && npm run build     # type-check estrito + build de produção
 ```
 
-A auditoria UX/UI do design construído está em [`docs/UX-AUDIT.json`](docs/UX-AUDIT.json)
-(195 princípios, score 77/100 — as correções prioritárias já foram aplicadas no código).
+Os testes do planner usam um transporte HTTP falso e `fetch` falso para o MiMo: cobrem paralelismo
+de cláusulas, bandas, retry de 503, créditos esgotados e a cadeia de reserva sem gastar nada.
+
+> **Teste de ponta a ponta com microfone falso** (Chrome real, `--use-file-for-fake-audio-capture`):
+> veja a seção *Microfone*. Rode-o contra um servidor em **modo demo** (`TRELLO_API_KEY=` vazio):
+> comandos como *mover* executam sem confirmação e nunca devem tocar no seu board real.
 
 ---
 
@@ -317,7 +391,12 @@ e a `kluser-me-agent-skill`, que mantém o inventário e a saúde das rotas publ
 | `trello_unauthorized` | key/token inválidos ou revogados | gere novos em [trello.com/power-ups/admin](https://trello.com/power-ups/admin) |
 | `trello_not_found` | `TRELLO_BOARD_ID` errado | `curl "localhost:8787/api/trello/boards"` e copie o `id` |
 | Microfone não pede permissão | página sem HTTPS (fora de localhost) | publique com TLS |
-| Agente respondeu em JSON inválido | modelo fora do protocolo | o servidor degrada para o interpretador local e avisa no painel |
+| *«O microfone «X» não captou som»* | dispositivo errado, mudo ou bloqueado | menu do microfone → escolha outro e use o **medidor de nível**; tente **áudio bruto** |
+| *«Não entendi nenhuma fala»* com som captado | falou longe, muito baixo ou nomes difíceis | fale mais perto; os nomes das suas listas/cards já vão como dica ao STT |
+| Nomes próprios saem trocados («Nem Láde» por «MemLab») | o STT erra a fonética | o JEV se abstém e o MiMo resolve; ou clique no lápis da legenda e corrija o texto |
+| Muitos comandos pedem confirmação | confiança do JEV em pt-BR entre 0,5 e 0,8 | ajuste `JEV_AUTO_THRESHOLD` (rode `npm run eval:jev` antes de baixar) |
+| JEV indisponível (créditos, rede) | `402`/`429`/`5xx` no OpenRouter | o MiMo assume e o motivo aparece em «Decisões»; veja <https://openrouter.ai/credits> |
+| MiMo respondeu em JSON inválido | modelo fora do protocolo | o servidor degrada para o interpretador local e avisa no painel |
 | 429 do OpenRouter | rate limit | o servidor já retenta com backoff; aguarde ou configure fallback de modelo |
 
 ---
@@ -326,4 +405,4 @@ e a `kluser-me-agent-skill`, que mantém o inventário e a saúde das rotas publ
 
 [MIT](LICENSE) — use, mude e publique à vontade.
 
-Feito com OpenAI STT · OpenRouter (Xiaomi MiMo 2.6 Pro) · API REST do Trello · Motion UI.
+Feito com OpenAI STT · JEV (TypeSafe) e Xiaomi MiMo 2.6 Pro via OpenRouter · API REST do Trello · Motion UI.
