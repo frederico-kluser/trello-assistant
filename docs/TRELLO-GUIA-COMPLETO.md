@@ -66,9 +66,18 @@ A tua conta Trello
    - **Name** — o que quiseres, ex.: `Trello Orbit`;
    - **Workspace** — escolhe um Workspace onde **és admin**;
    - Email / Support email / Author — os teus contactos;
-   - *"Does your app use Power-Up capabilities?"* → **não precisas** de capabilities: escolhe a
-     opção de app sem capabilities (não é pedido Iframe Connector URL, e o separador
-     "Capabilities" nem aparece). Este app serve só para gerar credenciais.
+   - **"My app will/doesn't use Power-up capabilities"** → escolhe **"My app doesn't use Power-Up
+     capabilities"**. Só com esta escolha é que **o campo Iframe Connector URL desaparece** — a
+     documentação oficial é literal: *"If you select 'My app doesn't use Power-Up capabilities',
+     your app will not need an Iframe Connector URL… you will not have the option to fill in this
+     field"*. Se escolheres a outra opção, o iframe passa a ser obrigatório (é para apps que
+     carregam uma interface dentro do Trello — **não é o teu caso**).
+   - Email / Support email / Author — os teus contactos.
+   - **Iframe Connector URL** — se este campo aparecer a pedir valor, é porque ficaste na opção
+     "will use Power-Up capabilities": volta atrás e muda para *doesn't use*. Se a tua UI não
+     deixar mudar depois de criada, cria a app de novo com a opção certa. (Em último recurso, um
+     placeholder válido como `https://localhost` não faz mal nenhum: o campo só é usado se a app
+     for carregada como Power-Up dentro de um board — o que nunca acontece neste projeto.)
 5. Clica **"Create"**. Ficas na página de definições da app.
 
 > **Não precisas de:** publicar o Power-Up, ativar capabilities, plano pago, nem submeter nada a
@@ -328,6 +337,16 @@ depois credenciais.**
 ---
 
 ## FAQ
+
+**Dá para gerar a key sem criar uma app? Está a pedir Iframe Connector URL!**
+Não dá — desde a reformulação do portal, a API key **só existe dentro de uma app registada** (a
+página antiga `trello.com/app-key` foi descontinuada e redireciona para lá). Mas repara: essa
+"app" é apenas um **contentor de credenciais** — é grátis, não tem revisão, não se publica, não se
+instala em nenhum board e não aparece a ninguém. O Iframe Connector URL **não é obrigatório**: no
+formulário **New**, o primeiro campo pergunta *"My app will/doesn't use Power-up capabilities"* →
+escolhe **"My app doesn't use Power-Up capabilities"** e o campo do iframe nem sequer aparece
+(podes confirmar na [documentação oficial](https://developer.atlassian.com/cloud/trello/guides/power-ups/managing-apps)).
+Se já criaste a app na opção errada, cria outra com a escolha certa — a key sai igual.
 
 **Quanto custa?** Nada — a API do Trello é grátis e o plano Free chega. Só pagas se usares a API
 STT da OpenAI (opcional).
