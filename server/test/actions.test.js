@@ -40,6 +40,19 @@ test("findList resolve por trecho do nome", () => {
   assert.equal(findList(boardFixture(), "fazendo").id, "l2");
 });
 
+test("findList ignora pontuação e emojis nos nomes reais dos boards", () => {
+  const board = {
+    lists: [
+      { id: "l1", name: "Para fazer ( hoje)", closed: false },
+      { id: "l2", name: "Fazendo 🎉", closed: false },
+    ],
+    cards: [],
+  };
+  assert.equal(findList(board, "para fazer hoje").id, "l1");
+  assert.equal(findList(board, "fazendo").id, "l2");
+  assert.throws(() => findList(board, "fazer"), /Não encontrei/);
+});
+
 test("toIsoDate aceita ISO, BR e ignora lixo", () => {
   assert.ok(toIsoDate("2026-08-20"));
   assert.ok(toIsoDate("20/08/2026"));

@@ -52,6 +52,10 @@ function norm(value) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
+    // pontuação e emojis viram espaço: "Para fazer ( hoje)" ≈ "para fazer hoje",
+    // "Fazendo 🎉" ≈ "fazendo" — nomes reais de board não são "limpos".
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
