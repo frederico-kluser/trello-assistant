@@ -267,6 +267,36 @@ A auditoria UX/UI do design construído está em [`docs/UX-AUDIT.json`](docs/UX-
 
 ---
 
+## Rodar local, sempre ligado (systemd --user)
+
+O app pode ficar como serviço de utilizador: sobe sozinho, reinicia se cair e sobrevive a reboot
+(basta o `linger` estar ligado — `loginctl show-user $USER -p Linger` → `yes`).
+
+```ini
+# ~/.config/systemd/user/trello-orbit.service
+[Service]
+WorkingDirectory=/caminho/para/trello-assistant/server
+ExecStart=/caminho/absoluto/do/node /caminho/para/trello-assistant/server/src/index.js
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload && systemctl --user enable --now trello-orbit
+systemctl --user status trello-orbit        # estado
+journalctl --user -u trello-orbit -f        # logs ao vivo
+systemctl --user restart trello-orbit       # aplicar mudanças do .env
+```
+
+> Use o **caminho absoluto do `node`** — o nvm não está no `PATH` do systemd.
+
+Para publicar num domínio próprio (HTTPS + subdomínio + gate), esta máquina tem a
+`cloudflare-agent-skill` (`scripts/expose-port/domain.py up '<url>' --name <label> --gate --persist`)
+e a `kluser-me-agent-skill`, que mantém o inventário e a saúde das rotas publicadas.
+
 ## Segurança
 
 - **Chaves só no servidor** — o bundle do front nunca recebe nenhuma credencial.
