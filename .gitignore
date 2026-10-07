@@ -1,0 +1,36 @@
+# ── Credenciais (NUNCA commitar) ────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ── Node ────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# ── Build ───────────────────────────────────────────────────────
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# ── Testes / cobertura ──────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ── Sistema / editores ──────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# ── Logs e runtime ──────────────────────────────────────────────
+*.log
+server/data/demo-board.json

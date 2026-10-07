@@ -1,0 +1,22 @@
+{
+  "name": "trello-orbit-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Servidor do Trello Orbit — STT (OpenAI), agente (OpenRouter MiMo 2.6 Pro) e proxy da API do Trello.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "check": "node --check src/index.js && node --check src/config.js && node --check src/lib/http.js && node --check src/lib/errors.js && node --check src/domain/actions.js && node --check src/services/stt.js && node --check src/services/agent.js && node --check src/services/intent.js && node --check src/services/trello.js && node --check src/routes/api.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.6",
+    "express": "^5.2.1",
+    "multer": "^2.4.0"
+  }
+}

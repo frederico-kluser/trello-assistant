@@ -1,0 +1,102 @@
+{
+  "interface_type": "ai-chat",
+  "interface_type_note": "Interface híbrida: agente conversacional por voz (dominante) sobre um painel visual de board tipo dashboard; classificada como ai-chat por ser controlada primariamente por linguagem natural com IA.",
+  "overall_score": 77,
+  "band": "good",
+  "findings": [
+    {
+      "id": "finding-1",
+      "principle": {
+        "code": "F.1.1.02",
+        "slug": "cognitive-load",
+        "title": "Cognitive Load",
+        "part": "part-1"
+      },
+      "severity": "warning",
+      "message": "O palco orbital pode reunir até 30 cards simultâneos (5 anéis × 6 cards), acima da janela de trabalho (7±2). Mesmo com esmaecimento dos cards não focados (40% de opacidade), a primeira leitura da cena exige varredura de muitos elementos para localizar um card específico.",
+      "remediation": "Limitar a 3 anéis e 5 cards por anel em telas pequenas (aplicado) e manter o esmaecimento dos não focados; para boards grandes, priorizar na órbita apenas os cards com prazo próximo ou recém-movidos e destinar os demais ao painel lateral.",
+      "business_impact": null
+    },
+    {
+      "id": "finding-2",
+      "principle": {
+        "code": "I.2.2.02",
+        "slug": "fitts-law",
+        "title": "Fitts's Law",
+        "part": "part-4"
+      },
+      "severity": "warning",
+      "message": "Em telas estreitas, a escala do sistema orbital reduzia o card para menos de 44 px de área tocável — abaixo do mínimo de alvo de toque e do tamanho de dedo médio, aumentando erros de acerto ao selecionar um card.",
+      "remediation": "Aplicar escala mínima de 0.55 no palco e reduzir para 3 anéis abaixo de 640 px, mantendo o chip do card com no mínimo ~88 × 40 px tocáveis; manter o clique do card como atalho, nunca como único caminho (seleção também acontece pela fala).",
+      "business_impact": null
+    },
+    {
+      "id": "finding-3",
+      "principle": {
+        "code": "C.1.4.01",
+        "slug": "error-prevention",
+        "title": "Error Prevention",
+        "part": "part-2"
+      },
+      "severity": "suggestion",
+      "message": "Ações não destrutivas (mover, prazo, comentário) executam imediatamente após o anúncio, sem ponto de desfazer. Um comando interpretado com a referência errada de card exige um novo comando para corrigir.",
+      "remediation": "No toast de sucesso, indicar o caminho de correção por voz (ex.: «para desfazer, diga: move X de volta para Y») e manter o card tocado em destaque por 6 s para verificação imediata.",
+      "business_impact": null
+    },
+    {
+      "id": "finding-4",
+      "principle": {
+        "slug": "progressive-disclosure",
+        "code": "D.1.1.01",
+        "title": "Progressive Disclosure",
+        "part": "part-3"
+      },
+      "severity": "suggestion",
+      "message": "A sintaxe de comandos é ensinada apenas por uma linha de exemplo estática sob o palco; o utilizador descobre a gramática do agente por tentativa e erro, elevando o custo das primeiras interações.",
+      "remediation": "Exibir chips clicáveis de exemplos («cria card X na lista Y», «move X para Y», «prazo amanhã em X») que preenchem a caixa de texto, revelados progressivamente após o primeiro uso bem-sucedido.",
+      "business_impact": null
+    },
+    {
+      "id": "finding-5",
+      "principle": {
+        "slug": "visual-hierarchy",
+        "code": "D.2.1.02",
+        "title": "Visual Hierarchy",
+        "part": "part-3"
+      },
+      "severity": "suggestion",
+      "message": "As etiquetas do Trello aparecem no card da órbita apenas como barras de cor; sem o nome, a informação depende de distinção cromática e de tooltip (hover), inacessível em toque.",
+      "remediation": "Manter as barras de cor na órbita (densidade) e garantir que o nome da etiqueta apareça sempre no card em destaque e no detalhe do painel — o que já ocorre; acrescentar aria-label com o nome da etiqueta para leitores de tela.",
+      "business_impact": null
+    }
+  ],
+  "strengths": [
+    {
+      "principle": {
+        "code": "C.1.4.01",
+        "slug": "error-prevention",
+        "title": "Error Prevention"
+      },
+      "message": "Criação e exclusão de cards exigem confirmação explícita (com hold-to-confirm para exclusão, que avisa ser definitiva), com trava redundante no servidor (HTTP 428 confirmation_required) caso o cliente tente executar direto."
+    },
+    {
+      "principle": {
+        "code": "S.1.3.01",
+        "slug": "ai-transparency",
+        "title": "AI Transparency"
+      },
+      "message": "O sistema anuncia sempre a intenção antes de agir (áudio + texto), mostra o plano com cada ação rotulada como «confirmar» ou «direto», identifica o motor usado (MiMo 2.6 Pro ou interpretador local) e exibe o que falta configurar — sem esconder limitações."
+    },
+    {
+      "principle": {
+        "code": "C.1.1.01",
+        "slug": "consistency-and-standards",
+        "title": "Consistency and Standards"
+      },
+      "message": "Feedback em quatro canais coerentes (fala, texto do plano, toast e aria-live para leitores de tela), estado do fluxo sempre visível (gravando/transcrevendo/pensando/executando) e entrada de texto como alternativa permanente à voz."
+    }
+  ],
+  "priority_fixes": ["finding-2", "finding-1", "finding-4", "finding-3", "finding-5"],
+  "api_enriched": false,
+  "api_note": "Install the uxuiprinciples API key for enriched findings with citations and business impact data. See uxuiprinciples.com/en/checkout"
+}

@@ -1,0 +1,817 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Trello Orbit · O que fazer depois que terminar</title>
+<style>
+  /* ── Plannotator standalone defaults ─────────────────────────── */
+  :root {
+    --background: oklch(0.97 0.005 260);
+    --foreground: oklch(0.18 0.02 260);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.18 0.02 260);
+    --primary: oklch(0.50 0.25 280);
+    --primary-foreground: oklch(1 0 0);
+    --secondary: oklch(0.50 0.18 180);
+    --secondary-foreground: oklch(1 0 0);
+    --muted: oklch(0.92 0.01 260);
+    --muted-foreground: oklch(0.40 0.02 260);
+    --accent: oklch(0.60 0.22 50);
+    --accent-foreground: oklch(0.18 0.02 260);
+    --destructive: oklch(0.50 0.25 25);
+    --destructive-foreground: oklch(1 0 0);
+    --success: oklch(0.45 0.20 150);
+    --success-foreground: oklch(1 0 0);
+    --warning: oklch(0.55 0.18 85);
+    --warning-foreground: oklch(0.18 0.02 260);
+    --border: oklch(0.88 0.01 260);
+    --input: oklch(0.92 0.01 260);
+    --ring: oklch(0.50 0.25 280);
+    --code-bg: oklch(0.92 0.01 260);
+
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+    --font-display: ui-serif, Georgia, 'Times New Roman', serif;
+    --radius: 0.625rem;
+  }
+
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--background);
+    color: var(--foreground);
+    line-height: 1.65;
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .container { max-width: 1080px; margin: 0 auto; padding: 64px 24px; }
+
+  /* ── Header ─────────────────────────────────────────────────── */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted-foreground);
+  }
+
+  header h1 {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 500;
+    margin: 8px 0 24px;
+    line-height: 1.2;
+  }
+
+  .prompt-box {
+    background: var(--muted);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 24px;
+  }
+
+  .prompt-label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted-foreground);
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  .prompt-box p { font-size: 0.92rem; color: var(--muted-foreground); line-height: 1.55; }
+
+  /* ── Summary strip ──────────────────────────────────────────── */
+  .summary-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 16px;
+    margin: 32px 0;
+  }
+
+  .stat-card {
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 24px;
+    text-align: center;
+    background: var(--card);
+  }
+
+  .stat-value {
+    font-family: var(--font-display);
+    font-size: 1.8rem;
+    font-weight: 500;
+    display: block;
+    color: var(--foreground);
+  }
+
+  .stat-label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted-foreground);
+    margin-top: 4px;
+    display: block;
+  }
+
+  /* ── Sections ───────────────────────────────────────────────── */
+  section { margin-top: 64px; }
+
+  .section-header {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 24px;
+    padding-bottom: 8px;
+    border-bottom: 1.5px solid var(--border);
+  }
+
+  .section-number {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--primary);
+  }
+
+  .section-header h2 {
+    font-family: var(--font-display);
+    font-size: 1.4rem;
+    font-weight: 500;
+  }
+
+  p { max-width: 65ch; }
+  p + p { margin-top: 12px; }
+  .lede { color: var(--muted-foreground); }
+
+  strong { font-weight: 600; }
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: calc(var(--radius) - 4px);
+  }
+
+  a { color: var(--primary); text-decoration: none; border-bottom: 1px solid color-mix(in oklab, var(--primary) 35%, transparent); }
+  a:hover { border-bottom-color: var(--primary); }
+
+  /* ── Code panel ─────────────────────────────────────────────── */
+  .code-panel {
+    background: var(--code-bg);
+    border-radius: var(--radius);
+    padding: 24px;
+    overflow-x: auto;
+    margin: 16px 0;
+    border: 1.5px solid var(--border);
+  }
+
+  .code-label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--muted-foreground);
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  .code-panel pre {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    line-height: 1.55;
+    color: var(--foreground);
+    white-space: pre;
+  }
+
+  .code-panel .kw  { color: var(--primary); }
+  .code-panel .fn  { color: var(--accent); }
+  .code-panel .str { color: var(--success); }
+  .code-panel .cm  { color: var(--muted-foreground); font-style: italic; }
+  .code-panel .num { color: var(--warning); }
+
+  /* ── Milestones ─────────────────────────────────────────────── */
+  .milestones { display: flex; flex-direction: column; gap: 0; }
+
+  .milestone { display: grid; grid-template-columns: 120px 28px 1fr; gap: 0 18px; }
+
+  .milestone .when {
+    text-align: right;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+    padding-top: 4px;
+  }
+
+  .milestone .dot-col { display: flex; flex-direction: column; align-items: center; }
+
+  .milestone .dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--card);
+    border: 3px solid var(--primary);
+    flex-shrink: 0;
+  }
+
+  .milestone .dot.done { background: var(--success); border-color: var(--success); }
+  .milestone .line { width: 2px; flex: 1; background: var(--border); margin: 4px 0; }
+  .milestone:last-child .line { display: none; }
+  .milestone .body { padding-bottom: 36px; }
+
+  .milestone .body h3 {
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+
+  .milestone .body p { font-size: 0.88rem; color: var(--muted-foreground); max-width: 620px; margin-bottom: 10px; }
+
+  /* ── Diagram ────────────────────────────────────────────────── */
+  .diagram-panel {
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin: 24px 0;
+    background: var(--card);
+    overflow-x: auto;
+  }
+
+  .diagram-caption {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--muted-foreground);
+    display: block;
+    margin-top: 8px;
+    text-align: center;
+  }
+
+  /* ── Risk grid ──────────────────────────────────────────────── */
+  .risk-grid { border: 1.5px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+
+  .risk-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1.5fr;
+    gap: 24px;
+    padding: 16px 24px;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .risk-row:last-child { border-bottom: none; }
+  .risk-name { font-weight: 500; }
+  .risk-mitigation { font-size: 0.9rem; color: var(--muted-foreground); }
+
+  .badge {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: calc(var(--radius) - 4px);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  .badge.high { background: color-mix(in oklab, var(--destructive) 15%, transparent); color: var(--destructive); }
+  .badge.med  { background: color-mix(in oklab, var(--warning) 15%, transparent); color: var(--warning); }
+  .badge.low  { background: color-mix(in oklab, var(--success) 15%, transparent); color: var(--success); }
+
+  /* ── Callouts / tags / details ──────────────────────────────── */
+  .callout {
+    border-left: 3px solid var(--primary);
+    padding: 16px 24px;
+    margin: 16px 0;
+    background: var(--card);
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+
+  .callout h3 { font-family: var(--font-display); font-size: 1.05rem; font-weight: 500; margin-bottom: 4px; }
+  .callout p { font-size: 0.9rem; color: var(--muted-foreground); line-height: 1.55; }
+
+  .decide-with {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--primary);
+    font-weight: 500;
+    display: block;
+    margin-top: 8px;
+  }
+
+  .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+
+  .tag {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    padding: 2px 8px;
+    border-radius: calc(var(--radius) - 4px);
+    background: var(--muted);
+    color: var(--muted-foreground);
+  }
+
+  .tag.highlight {
+    background: color-mix(in oklab, var(--primary) 12%, transparent);
+    color: var(--primary);
+  }
+
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    margin: 16px 0;
+    background: var(--card);
+  }
+
+  summary {
+    font-family: var(--font-sans);
+    font-weight: 500;
+    padding: 16px 24px;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  summary::before {
+    content: '▸';
+    display: inline-block;
+    margin-right: 8px;
+    transition: transform 0.2s;
+  }
+
+  details[open] summary::before { transform: rotate(90deg); }
+  .details-body { padding: 0 24px 24px; }
+  .details-body ol, .details-body ul { margin: 8px 0 8px 20px; }
+  .details-body li { margin-bottom: 6px; font-size: 0.92rem; }
+
+  /* ── Checklist ──────────────────────────────────────────────── */
+  .checklist { list-style: none; margin: 16px 0; }
+  .checklist li {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 12px 16px; border: 1.5px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 8px; background: var(--card);
+    font-size: 0.92rem;
+  }
+  .checklist .box {
+    width: 18px; height: 18px; border: 2px solid var(--primary);
+    border-radius: 4px; flex-shrink: 0; margin-top: 3px;
+  }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+
+  footer {
+    margin-top: 72px; padding-top: 24px; border-top: 1.5px solid var(--border);
+    font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted-foreground);
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+
+  @media (max-width: 720px) {
+    .two-col { grid-template-columns: 1fr; }
+    .milestone { grid-template-columns: 72px 24px 1fr; }
+    .risk-row { grid-template-columns: 1fr; gap: 8px; }
+    .container { padding: 40px 16px; }
+    header h1 { font-size: 1.6rem; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- ═══ HEADER ═══════════════════════════════════════════════ -->
+  <header>
+    <span class="eyebrow">Post-build checklist · Trello Orbit</span>
+    <h1>O que fazer depois que terminar</h1>
+    <div class="prompt-box">
+      <span class="prompt-label">Brief</span>
+      <p>
+        O app já está construído: microfone, transcrição pela API STT da OpenAI, análise com o
+        MiMo 2.6 Pro no OpenRouter e integração total com a API REST do Trello (criar, apagar,
+        mover, prazos, etiquetas, comentários, checklists, listas). As credenciais NÃO estão no
+        repositório. Este documento é o caminho exato — em ordem — para você preencher as chaves,
+        ligar seu board real e publicar o app sem vazar nenhum segredo.
+      </p>
+    </div>
+  </header>
+
+  <div class="summary-strip">
+    <div class="stat-card">
+      <span class="stat-value">3</span>
+      <span class="stat-label">APIs para configurar</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">0</span>
+      <span class="stat-label">segredos no git</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">1</span>
+      <span class="stat-label">arquivo .env</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-value">6</span>
+      <span class="stat-label">fases até produção</span>
+    </div>
+  </div>
+
+  <!-- ═══ 01 · ESTADO ATUAL ════════════════════════════════════ -->
+  <section>
+    <div class="section-header">
+      <span class="section-number">01</span>
+      <h2>O que já funciona sem você fazer nada</h2>
+    </div>
+    <p class="lede">
+      O app tem <strong>modo degradado inteligente</strong>: enquanto uma chave não existe, ele usa um
+      substituto honesto e diz isso na tela. Você pode rodar tudo agora, em modo demonstração, e
+      trocar as peças à medida que gera as credenciais.
+    </p>
+
+    <div class="two-col" style="margin-top:24px">
+      <div class="stat-card" style="text-align:left">
+        <span class="stat-label">Sem OPENAI_API_KEY</span>
+        <p style="font-size:0.9rem;margin-top:8px">
+          O microfone continua gravando, mas a transcrição usa o reconhecimento do próprio navegador
+          (Web Speech API). Com a chave, a transcrição passa a ser feita pela API STT da OpenAI
+          (<code>gpt-4o-mini-transcribe</code> por padrão).
+        </p>
+      </div>
+      <div class="stat-card" style="text-align:left">
+        <span class="stat-label">Sem OPENROUTER_API_KEY</span>
+        <p style="font-size:0.9rem;margin-top:8px">
+          A análise do que você falou é feita por um interpretador local de comandos em pt-BR.
+          Com a chave, o <code>xiaomi/mimo-v2.6-pro</code> passa a planejar as ações com o board
+          inteiro como contexto.
+        </p>
+      </div>
+      <div class="stat-card" style="text-align:left">
+        <span class="stat-label">Sem TRELLO_API_KEY</span>
+        <p style="font-size:0.9rem;margin-top:8px">
+          O app roda contra um <strong>board de demonstração</strong> em memória — nada vai para o
+          Trello. Com key + token + id do board, tudo passa a acontecer no seu board real.
+        </p>
+      </div>
+      <div class="stat-card" style="text-align:left">
+        <span class="stat-label">Sem servidor rodando</span>
+        <p style="font-size:0.9rem;margin-top:8px">
+          O projeto foi salvo, não deixei nenhum processo ligado. Para usar: <code>npm install</code>
+          e <code>npm start</code> em <code>server/</code> (e <code>npm run build</code> em
+          <code>web/</code> uma vez). Detalhes na fase 1.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 02 · ARQUITETURA ═════════════════════════════════════ -->
+  <section>
+    <div class="section-header">
+      <span class="section-number">02</span>
+      <h2>Onde cada chave entra</h2>
+    </div>
+    <p class="lede">
+      Importante: <strong>o navegador nunca vê nenhuma chave</strong>. Tudo passa pelo servidor
+      (<code>server/</code>), que é o único lugar onde o <code>.env</code> é lido. É por isso que o
+      repositório pode ser público.
+    </p>
+
+    <div class="diagram-panel">
+      <svg viewBox="0 0 880 360" xmlns="http://www.w3.org/2000/svg" style="width:100%;min-width:640px">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--muted-foreground)"/>
+          </marker>
+          <marker id="arrow-primary" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--primary)"/>
+          </marker>
+        </defs>
+
+        <!-- navegador -->
+        <g transform="translate(20, 120)">
+          <rect width="190" height="112" rx="10" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/>
+          <text x="95" y="30" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--foreground)">Navegador</text>
+          <text x="95" y="52" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" fill="var(--muted-foreground)">microfone · órbita de cards</text>
+          <text x="95" y="70" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" fill="var(--muted-foreground)">confirmações · áudio (TTS)</text>
+          <text x="95" y="92" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--success)">sem nenhuma chave</text>
+        </g>
+
+        <!-- servidor -->
+        <g transform="translate(330, 100)">
+          <rect width="220" height="152" rx="10" fill="color-mix(in oklab, var(--primary) 8%, transparent)" stroke="var(--primary)" stroke-width="1.5"/>
+          <text x="110" y="30" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--foreground)">server/ (Node + Express)</text>
+          <text x="110" y="54" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" fill="var(--primary)">/api/stt · /api/agent</text>
+          <text x="110" y="72" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" fill="var(--primary)">/api/actions · /api/board</text>
+          <text x="110" y="98" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" fill="var(--muted-foreground)">lê .env · guarda as chaves</text>
+          <text x="110" y="120" text-anchor="middle" font-family="var(--font-mono)" font-size="10.5" fill="var(--muted-foreground)">confirmação obrigatória (428)</text>
+        </g>
+
+        <!-- APIs -->
+        <g transform="translate(670, 20)">
+          <rect width="190" height="86" rx="10" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/>
+          <text x="95" y="28" text-anchor="middle" font-family="var(--font-sans)" font-size="12.5" font-weight="600" fill="var(--foreground)">OpenAI · STT</text>
+          <text x="95" y="50" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--muted-foreground)">OPENAI_API_KEY</text>
+          <text x="95" y="70" text-anchor="middle" font-family="var(--font-mono)" font-size="9.5" fill="var(--warning)">fase 4 · quando houver crédito</text>
+        </g>
+
+        <g transform="translate(670, 132)">
+          <rect width="190" height="86" rx="10" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/>
+          <text x="95" y="28" text-anchor="middle" font-family="var(--font-sans)" font-size="12.5" font-weight="600" fill="var(--foreground)">OpenRouter · MiMo</text>
+          <text x="95" y="50" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--muted-foreground)">OPENROUTER_API_KEY</text>
+          <text x="95" y="70" text-anchor="middle" font-family="var(--font-mono)" font-size="9.5" fill="var(--muted-foreground)">fase 3</text>
+        </g>
+
+        <g transform="translate(670, 244)">
+          <rect width="190" height="86" rx="10" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/>
+          <text x="95" y="28" text-anchor="middle" font-family="var(--font-sans)" font-size="12.5" font-weight="600" fill="var(--foreground)">Trello · REST v1</text>
+          <text x="95" y="50" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--muted-foreground)">TRELLO_API_KEY + TOKEN</text>
+          <text x="95" y="70" text-anchor="middle" font-family="var(--font-mono)" font-size="9.5" fill="var(--muted-foreground)">fase 2</text>
+        </g>
+
+        <!-- setas -->
+        <line x1="210" y1="176" x2="322" y2="176" stroke="var(--muted-foreground)" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <text x="266" y="166" text-anchor="middle" font-family="var(--font-mono)" font-size="9.5" fill="var(--muted-foreground)">áudio / comando</text>
+
+        <line x1="550" y1="120" x2="662" y2="80" stroke="var(--muted-foreground)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+        <line x1="550" y1="176" x2="662" y2="176" stroke="var(--muted-foreground)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+        <line x1="550" y1="232" x2="662" y2="278" stroke="var(--muted-foreground)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+        <text x="606" y="166" text-anchor="middle" font-family="var(--font-mono)" font-size="9.5" fill="var(--muted-foreground)">HTTPS + Bearer</text>
+
+        <line x1="330" y1="270" x2="220" y2="270" stroke="var(--primary)" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow-primary)"/>
+        <text x="272" y="288" text-anchor="middle" font-family="var(--font-mono)" font-size="9.5" fill="var(--primary)">fala + plano + board</text>
+      </svg>
+      <span class="diagram-caption">Fluxo: você fala → servidor transcreve e planeia → servidor aplica no Trello → o app responde em áudio e anima os cards.</span>
+    </div>
+  </section>
+
+  <!-- ═══ 03 · ROADMAP ═════════════════════════════════════════ -->
+  <section>
+    <div class="section-header">
+      <span class="section-number">03</span>
+      <h2>As 6 fases, em ordem</h2>
+    </div>
+
+    <div class="milestones">
+      <div class="milestone">
+        <div class="when">Fase 1</div>
+        <div class="dot-col"><span class="dot done"></span><span class="line"></span></div>
+        <div class="body">
+          <h3>Rodar local (5 minutos, sem nenhuma chave)</h3>
+          <p>Instale as dependências, copie o <code>.env.example</code> para <code>.env</code> (pode deixar tudo vazio por enquanto) e suba o servidor. O app já abre em modo demonstração, com um board fictício para você testar a voz e as animações.</p>
+          <div class="code-panel">
+            <span class="code-label">terminal</span>
+            <pre><span class="cm"># 1) dependências</span>
+<span class="kw">cd</span> server &amp;&amp; npm install
+<span class="kw">cd</span> ../web  &amp;&amp; npm install &amp;&amp; npm run build
+
+<span class="cm"># 2) configuração (pode deixar os valores em branco)</span>
+<span class="kw">cd</span> .. &amp;&amp; cp .env.example .env
+
+<span class="cm"># 3) subir — nada fica rodando depois que você dá Ctrl+C</span>
+<span class="kw">cd</span> server &amp;&amp; npm start
+<span class="cm"># ✦ Trello Orbit · http://localhost:8787</span></pre>
+          </div>
+          <div class="tags">
+            <span class="tag">server/package.json</span>
+            <span class="tag">web/package.json</span>
+            <span class="tag highlight">.env</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="milestone">
+        <div class="when">Fase 2</div>
+        <div class="dot-col"><span class="dot"></span><span class="line"></span></div>
+        <div class="body">
+          <h3>Trello: key + token + id do board</h3>
+          <p>Esta é a parte manual que você mencionou. A API do Trello existe e é a REST v1 oficial — a key e o token se geram no painel de Power-Ups. Siga o passo a passo clicável logo abaixo desta timeline (detalhe <strong>«Gerar as credenciais do Trello»</strong>).</p>
+          <p>Depois de preencher <code>TRELLO_API_KEY</code>, <code>TRELLO_API_TOKEN</code> e <code>TRELLO_BOARD_ID</code> no <code>.env</code>, reinicie o servidor e confira:</p>
+          <div class="code-panel">
+            <span class="code-label">terminal — os seus boards, em JSON</span>
+            <pre>curl <span class="str">"http://localhost:8787/api/trello/boards"</span></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="milestone">
+        <div class="when">Fase 3</div>
+        <div class="dot-col"><span class="dot"></span><span class="line"></span></div>
+        <div class="body">
+          <h3>OpenRouter: a análise com o MiMo 2.6 Pro</h3>
+          <p>Gere uma chave em <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a> e coloque em <code>OPENROUTER_API_KEY</code>. O modelo padrão já vem configurado como <code>xiaomi/mimo-v2.6-pro</code>; o servidor manda o board inteiro como contexto e recebe um plano JSON de ações. Se a chave estiver sem saldo, o app cai no interpretador local e avisa na tela — nunca quebra.</p>
+          <div class="tags">
+            <span class="tag highlight">OPENROUTER_API_KEY</span>
+            <span class="tag">OPENROUTER_MODEL=xiaomi/mimo-v2.6-pro</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="milestone">
+        <div class="when">Fase 4</div>
+        <div class="dot-col"><span class="dot"></span><span class="line"></span></div>
+        <div class="body">
+          <h3>OpenAI: transcrição de voz (quando houver crédito)</h3>
+          <p>Você disse que está sem saldo na OpenAI — sem problema. Enquanto isso, o app transcreve com o reconhecimento do navegador. Quando recarregar, gere a chave em <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">platform.openai.com/api-keys</a>, preencha <code>OPENAI_API_KEY</code> e pronto: o servidor passa a enviar o áudio para <code>/v1/audio/transcriptions</code>.</p>
+          <div class="callout">
+            <h3>Modelo de transcrição</h3>
+            <p>O padrão é <code>gpt-4o-mini-transcribe</code> — o mais barato da família e mais que suficiente para comandos curtos. Se preferir o clássico, troque <code>OPENAI_STT_MODEL</code> para <code>whisper-1</code>.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="milestone">
+        <div class="when">Fase 5</div>
+        <div class="dot-col"><span class="dot"></span><span class="line"></span></div>
+        <div class="body">
+          <h3>Publicar sem subir credenciais</h3>
+          <p>O repositório pode ficar público: o <code>.env</code> está no <code>.gitignore</code> e o front não recebe nenhuma chave. No provedor de deploy, você apenas preenche as variáveis de ambiente no painel — os valores nunca entram no git.</p>
+          <p><strong>Importante para o microfone:</strong> browsers só liberam <code>getUserMedia</code> em HTTPS (ou em <code>localhost</code>). Em produção, use um provedor que sirva por HTTPS — todos os principais já fazem isso por padrão.</p>
+          <div class="two-col">
+            <div class="stat-card" style="text-align:left">
+              <span class="stat-label">Opção A · Node único</span>
+              <p style="font-size:0.9rem;margin-top:8px">
+                Suba o <code>server/</code> num Render/Railway/Fly.io/Node e mande o build do
+                <code>web/</code> junto (o servidor já serve o <code>web/dist</code> automaticamente).
+                Uma URL só, um processo só.
+              </p>
+            </div>
+            <div class="stat-card" style="text-align:left">
+              <span class="stat-label">Opção B · estático + API</span>
+              <p style="font-size:0.9rem;margin-top:8px">
+                Front em Vercel/Netlify (build <code>web/</code>) apontando <code>/api</code> para o
+                servidor Node. Nesse caso, ajuste <code>APP_URL</code> e configure CORS no servidor.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="milestone">
+        <div class="when">Fase 6</div>
+        <div class="dot-col"><span class="dot"></span><span class="line"></span></div>
+        <div class="body">
+          <h3>Verificação final</h3>
+          <p>Rode o checklist do item 05 neste documento com o board real. Se algo falhar, o painel de voo do app mostra exatamente qual ação falhou e por quê (cada erro da API tem código, mensagem e dica).</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 04 · PASSO A PASSO DAS CHAVES ════════════════════════ -->
+  <section>
+    <div class="section-header">
+      <span class="section-number">04</span>
+      <h2>Passo a passo clicável de cada credencial</h2>
+    </div>
+
+    <details open>
+      <summary>Gerar as credenciais do Trello (key + token + id do board)</summary>
+      <div class="details-body">
+        <ol>
+          <li>Abra <a href="https://trello.com/power-ups/admin" target="_blank" rel="noreferrer">trello.com/power-ups/admin</a> e entre na sua conta Atlassian/Trello.</li>
+          <li>Clique em <strong>New</strong> (ou abra um Power-Up que já exista) e preencha nome à vontade — ex.: <em>Trello Orbit</em>. Ele não precisa de capabilities nem de iframe.</li>
+          <li>No menu lateral do Power-Up, clique em <strong>API Key</strong> → <strong>Generate a new API key</strong> → copie o valor. Isso é o <code>TRELLO_API_KEY</code>.</li>
+          <li>Logo abaixo da key há um link <strong>Token</strong>: clique, autorize o acesso com escopo <strong>read, write</strong> e escolha a expiração (recomendo 30 dias para começar; dá para gerar de novo a qualquer momento). Copie o token: é o <code>TRELLO_API_TOKEN</code>.</li>
+          <li>Descubra o id do board: abra o board no navegador; no fim da URL há um código tipo <code>/b/AB12CD34</code>. Com a key e o token já no <code>.env</code>, o caminho mais fácil é chamar o próprio app: <code>curl "http://localhost:8787/api/trello/boards"</code> — ele lista <code>id</code>, <code>name</code> e <code>url</code> de cada board. Copie o <code>id</code> para <code>TRELLO_BOARD_ID</code>.</li>
+          <li>Reinicie o servidor. O cabeçalho do app deve passar de <em>modo demo</em> para <em>Trello</em>.</li>
+        </ol>
+        <div class="callout">
+          <h3>Escopo mínimo</h3>
+          <p>Este app precisa de <strong>read + write</strong> nos boards (criar/mover/apagar cards, comentários, checklists). Não precisa de <strong>account</strong> e não mexe em administração do workspace.</p>
+          <span class="decide-with">Revogar quando quiser: trello.com/power-ups/admin → API Key → Revoke</span>
+        </div>
+      </div>
+    </details>
+
+    <details>
+      <summary>Gerar a chave do OpenRouter (análise MiMo 2.6 Pro)</summary>
+      <div class="details-body">
+        <ol>
+          <li>Abra <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a>.</li>
+          <li><strong>Create Key</strong>, dê um nome (ex.: <em>trello-orbit</em>) e — recomendado — defina um <em>credit limit</em> para a chave para nunca gastar acima do esperado.</li>
+          <li>Copie a chave (formato <code>sk-or-v1-…</code>) para <code>OPENROUTER_API_KEY</code> no <code>.env</code>.</li>
+          <li>Deixe <code>OPENROUTER_MODEL=xiaomi/mimo-v2.6-pro</code> (padrão) ou troque por qualquer outro modelo do catálogo.</li>
+          <li>Pronto: o servidor já envia os headers de atribuição (<code>HTTP-Referer</code>, <code>X-OpenRouter-Title</code>) e trata 429 com backoff automático.</li>
+        </ol>
+      </div>
+    </details>
+
+    <details>
+      <summary>Gerar a chave da OpenAI (STT) — só quando tiver crédito</summary>
+      <div class="details-body">
+        <ol>
+          <li>Abra <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">platform.openai.com/api-keys</a>.</li>
+          <li><strong>Create new secret key</strong> → copie (formato <code>sk-…</code>) para <code>OPENAI_API_KEY</code>.</li>
+          <li>Confirme que há saldo em <a href="https://platform.openai.com/usage" target="_blank" rel="noreferrer">platform.openai.com/usage</a>.</li>
+          <li>Reinicie o servidor. No cabeçalho do app, STT passa a mostrar <code>gpt-4o-mini-transcribe</code> em vez de <em>navegador</em>.</li>
+        </ol>
+        <div class="callout">
+          <h3>Enquanto não há crédito</h3>
+          <p>Deixe <code>OPENAI_API_KEY</code> em branco. O app usa o reconhecimento do navegador e mostra um aviso discreto com o caminho para ativar o da OpenAI.</p>
+        </div>
+      </div>
+    </details>
+
+    <details>
+      <summary>Publicar sem vazar segredos</summary>
+      <div class="details-body">
+        <ol>
+          <li>Confirme que <code>.env</code> está no <code>.gitignore</code> (já está) e que <code>git status</code> não mostra nenhum arquivo de credencial.</li>
+          <li>No provedor (Render, Railway, Fly.io, VPS…), crie o serviço apontando para <code>server/</code> com o comando <code>npm start</code> (build do front: <code>cd web &amp;&amp; npm install &amp;&amp; npm run build</code>).</li>
+          <li>No painel do provedor, preencha as variáveis de ambiente com os mesmos nomes do <code>.env.example</code>. Elas ficam no provedor, nunca no git.</li>
+          <li>Confirme HTTPS (obrigatório para o microfone) e teste a partir do celular.</li>
+        </ol>
+      </div>
+    </details>
+  </section>
+
+  <!-- ═══ 05 · CHECKLIST ═══════════════════════════════════════ -->
+  <section>
+    <div class="section-header">
+      <span class="section-number">05</span>
+      <h2>Checklist de verificação final</h2>
+    </div>
+    <ul class="checklist">
+      <li><span class="box"></span><span><strong>Conexão:</strong> o cabeçalho mostra <code>STT: gpt-4o-mini-transcribe</code>, <code>Agente: xiaomi/mimo-v2.6-pro</code> e <code>Board: Trello</code> — sem nenhum selo «modo demo».</span></li>
+      <li><span class="box"></span><span><strong>Criar por voz:</strong> fale «cria card testar órbita na lista a fazer» → o app <em>pergunta</em> em áudio, mostra o modal, e só cria após confirmar (com confete).</span></li>
+      <li><span class="box"></span><span><strong>Mover:</strong> fale «move testar órbita para fazendo» → o card desliza de anel sem pedir confirmação e o app narra o que fez.</span></li>
+      <li><span class="box"></span><span><strong>Prazo:</strong> fale «coloca prazo amanhã no card testar órbita» → o chip de data aparece no card.</span></li>
+      <li><span class="box"></span><span><strong>Apagar:</strong> fale «apaga o card testar órbita» → modal destrutivo com botão de <em>segurar para confirmar</em>; o card se dissolve da órbita.</span></li>
+      <li><span class="box"></span><span><strong>Destaque:</strong> ao mencionar um card, ele vem para a frente da órbita com a borda iluminada e aparece no painel de voo.</span></li>
+      <li><span class="box"></span><span><strong>Mobile:</strong> abra no celular — 3 anéis, cards tocáveis, modal em bottom-sheet, microfone funcionando (HTTPS).</span></li>
+      <li><span class="box"></span><span><strong>Segurança:</strong> <code>git log --stat</code> não mostra <code>.env</code>; as chaves continuam só no provedor.</span></li>
+    </ul>
+  </section>
+
+  <!-- ═══ 06 · RISCOS ══════════════════════════════════════════ -->
+  <section>
+    <div class="section-header">
+      <span class="section-number">06</span>
+      <h2>Riscos e mitigações</h2>
+    </div>
+
+    <div class="risk-grid">
+      <div class="risk-row">
+        <div class="risk-name">Commitar o .env por engano</div>
+        <div><span class="badge high">HIGH</span></div>
+        <div class="risk-mitigation">O <code>.gitignore</code> já bloqueia; se acontecer, revogue as chaves nos três painéis imediatamente e gere novas — nunca tente só "apagar o arquivo" do histórico.</div>
+      </div>
+      <div class="risk-row">
+        <div class="risk-name">Microfone sem HTTPS em produção</div>
+        <div><span class="badge high">HIGH</span></div>
+        <div class="risk-mitigation">Browsers bloqueiam <code>getUserMedia</code> fora de <code>localhost</code>. Sempre publique com TLS (padrão em Render/Railway/Fly/Vercel).</div>
+      </div>
+      <div class="risk-row">
+        <div class="risk-name">Token Trello com escopo largo ou eterno</div>
+        <div><span class="badge med">MED</span></div>
+        <div class="risk-mitigation">Gere com escopo <strong>read, write</strong> e expiração de 30 dias; renove quando expirar. Revogável a qualquer momento no painel de Power-Ups.</div>
+      </div>
+      <div class="risk-row">
+        <div class="risk-name">Custo inesperado na OpenAI</div>
+        <div><span class="badge med">MED</span></div>
+        <div class="risk-mitigation">Use <code>gpt-4o-mini-transcribe</code> (o padrão) e comandos curtos; sem chave, o fallback do navegador é gratuito.</div>
+      </div>
+      <div class="risk-row">
+        <div class="risk-name">Operar no board errado</div>
+        <div><span class="badge low">LOW</span></div>
+        <div class="risk-mitigation">O <code>TRELLO_BOARD_ID</code> fixa o alvo; o cabeçalho do app sempre mostra qual board está conectado antes de qualquer ação.</div>
+      </div>
+      <div class="risk-row">
+        <div class="risk-name">Comando de voz interpretado errado</div>
+        <div><span class="badge low">LOW</span></div>
+        <div class="risk-mitigation">Criar/apagar sempre passa por confirmação; mover/prazo são reversíveis por voz («move de volta para…») e o card tocado fica em destaque para verificação imediata.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 07 · DECISÕES ════════════════════════════════════════ -->
+  <section>
+    <div class="section-header">
+      <span class="section-number">07</span>
+      <h2>Decisões que ficam com você</h2>
+    </div>
+
+    <div class="callout">
+      <h3>Onde publicar?</h3>
+      <p>Opção A (um processo Node que já serve o front) é a mais simples e mantém tudo numa URL só. Opção B (estático + API) escala melhor mas exige configurar CORS. Para uso pessoal, A resolve.</p>
+      <span class="decide-with">Decide with: você · depende de onde já tem conta</span>
+    </div>
+
+    <div class="callout">
+      <h3>Expiração do token do Trello</h3>
+      <p>30 dias é o equilíbrio entre segurança e comodidade; <em>never</em> é mais prático mas só se a chave tiver restrição de escopo e você se lembrar de revogar se algo vazar.</p>
+      <span class="decide-with">Decide with: você · segurança × conveniência</span>
+    </div>
+
+    <div class="callout">
+      <h3>Idioma e voz das respostas</h3>
+      <p>Está fixado pt-BR (<code>OPENAI_STT_LANGUAGE=pt</code> e voz do navegador em pt-BR). Se quiser inglês/outra voz, é só trocar no <code>.env</code> e no <code>lib/speech.ts</code>.</p>
+      <span class="decide-with">Decide with: você</span>
+    </div>
+  </section>
+
+  <footer>
+    <span>Trello Orbit · post-build checklist</span>
+    <span>Arquivos-chave: .env.example · server/src/config.js · docs/UX-AUDIT.json · README.md</span>
+  </footer>
+
+</div>
+</body>
+</html>
