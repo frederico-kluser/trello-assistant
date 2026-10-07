@@ -101,10 +101,16 @@ A tua conta Trello
    a documentação mais recente chama-lhe **"Trello Auth"**; noutros sítios (e em apps antigos)
    aparece **"API Key"**. É a mesma aba — segue o que aparecer no teu ecrã.
 2. Clica **"Generate a new API Key"**. Se pedir confirmação, confirma.
-3. Aparecem dois valores: a **API key** e o **API secret**.
-   - Copia a **API key** → vai para `TRELLO_API_KEY`.
-   - **⚠ Não confundas:** o **API secret NÃO é o token**. (É o erro nº1 das pessoas —
-     "estava a usar o Secret em vez do Token".)
+3. Aparecem dois valores: a **API key** (32 caracteres hexadecimais) e o **API secret**.
+   - Copia a **API key** → vai para `TRELLO_API_KEY`. Ela é **pública por desenho** (viaja nas
+     URLs de autorização), portanto não é um segredo — mas guarda-a à mesma.
+   - **⚠ O API secret NÃO é o token** e **este projeto não o usa**: ele só serve para *assinar*
+     pedidos no fluxo OAuth 1.0a. Como usamos key+token em query string/header, podes ignorá-lo
+     (guarda-o por higiene, não o coles em ficheiros do projeto nem em sítios públicos). Nota:
+     o Trello **não oferece forma de redefinir** o segredo — se um dia vazar, a app cria-se de novo.
+   - **"Origens permitidas"**: deixa **vazio**. Só é usada para redirecionar o utilizador depois
+     do fluxo de autorização quando se passa `return_url` — o nosso caminho não redireciona (o
+     token aparece na janela).
 
 ```bash
 # exemplo de formato (NÃO uses estes valores!)
