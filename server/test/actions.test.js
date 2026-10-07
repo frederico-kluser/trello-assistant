@@ -44,13 +44,16 @@ test("findList ignora pontuação e emojis nos nomes reais dos boards", () => {
   const board = {
     lists: [
       { id: "l1", name: "Para fazer ( hoje)", closed: false },
-      { id: "l2", name: "Fazendo 🎉", closed: false },
+      { id: "l2", name: "Para fazer ( amanha)", closed: false },
+      { id: "l3", name: "Fazendo 🎉", closed: false },
     ],
     cards: [],
   };
   assert.equal(findList(board, "para fazer hoje").id, "l1");
-  assert.equal(findList(board, "fazendo").id, "l2");
-  assert.throws(() => findList(board, "fazer"), /Não encontrei/);
+  assert.equal(findList(board, "amanha").id, "l2");
+  assert.equal(findList(board, "fazendo").id, "l3");
+  // as duas listas "Para fazer (…)" tornam a referência ambígua — e a mensagem é gramatical
+  assert.throws(() => findList(board, "para fazer"), /mais de uma lista/);
 });
 
 test("toIsoDate aceita ISO, BR e ignora lixo", () => {

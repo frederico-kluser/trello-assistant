@@ -73,15 +73,15 @@ export function findCard(board, ref) {
   const pool = cards.filter((card) => !card.closed);
   const exact = pool.filter((card) => norm(card.name) === needle);
   if (exact.length === 1) return exact[0];
-  if (exact.length > 1) throw ambiguous("card", raw, exact);
+  if (exact.length > 1) throw ambiguous("um card", raw, exact);
 
   const partial = pool.filter((card) => norm(card.name).includes(needle));
   if (partial.length === 1) return partial[0];
-  if (partial.length > 1) throw ambiguous("card", raw, partial);
+  if (partial.length > 1) throw ambiguous("um card", raw, partial);
 
   const inclClosed = cards.filter((card) => norm(card.name).includes(needle));
   if (inclClosed.length === 1) return inclClosed[0];
-  if (inclClosed.length > 1) throw ambiguous("card", raw, inclClosed);
+  if (inclClosed.length > 1) throw ambiguous("um card", raw, inclClosed);
 
   throw new AppError("unknown_reference", `Não encontrei nenhum card chamado «${raw}».`, {
     status: 422,
@@ -102,11 +102,11 @@ export function findList(board, ref) {
 
   const exact = lists.filter((list) => norm(list.name) === needle);
   if (exact.length === 1) return exact[0];
-  if (exact.length > 1) throw ambiguous("lista", raw, exact);
+  if (exact.length > 1) throw ambiguous("uma lista", raw, exact);
 
   const partial = lists.filter((list) => norm(list.name).includes(needle));
   if (partial.length === 1) return partial[0];
-  if (partial.length > 1) throw ambiguous("lista", raw, partial);
+  if (partial.length > 1) throw ambiguous("uma lista", raw, partial);
 
   throw new AppError("unknown_reference", `Não encontrei nenhuma lista chamada «${raw}».`, {
     status: 422,
@@ -114,10 +114,10 @@ export function findList(board, ref) {
   });
 }
 
-function ambiguous(kind, ref, matches) {
+function ambiguous(kindPhrase, ref, matches) {
   return new AppError(
     "ambiguous_reference",
-    `«${ref}» bate com mais de um ${kind}: ${matches.slice(0, 4).map((m) => `«${m.name}»`).join(", ")}.`,
+    `«${ref}» bate com mais de ${kindPhrase}: ${matches.slice(0, 4).map((m) => `«${m.name}»`).join(", ")}.`,
     { status: 422, detail: { candidates: matches.slice(0, 6).map((m) => ({ id: m.id, name: m.name })) } },
   );
 }
