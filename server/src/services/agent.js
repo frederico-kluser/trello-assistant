@@ -126,10 +126,15 @@ export async function planFromTranscript({ transcript, board }) {
           { role: "user", content: `${boardDigest(board)}\n\nO QUE A PESSOA FALOU:\n${text}` },
         ],
         temperature: 0.2,
-        max_tokens: 1200,
+        max_tokens: config.openrouter.maxTokens,
         response_format: { type: "json_object" },
+        // Esforço de raciocínio no máximo (padrão): o modelo pensa o máximo
+        // antes de responder. Os reasoning tokens entram no orçamento de
+        // max_tokens e são cobrados como output.
+        reasoning: { effort: config.openrouter.reasoningEffort },
       },
-      timeoutMs: 60_000,
+      // Pense profundo custa latência: damos folga antes de degradar.
+      timeoutMs: 120_000,
       retries: 1,
     });
 

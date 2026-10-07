@@ -34,7 +34,8 @@ Trello e responde **em áudio**, enquanto os cards dançam em órbita ao redor d
 1. **Você toca o botão de record** (o "planeta" central) e fala o que quer.
 2. O áudio vai para o servidor e é transcrito pela **API STT da OpenAI**
    (`gpt-4o-mini-transcribe` por padrão, `whisper-1` opcional).
-3. A transcrição vai para o **OpenRouter**, modelo **`xiaomi/mimo-v2.6-pro`**, junto com um
+3. A transcrição vai para o **OpenRouter**, modelo **`xiaomi/mimo-v2.6-pro`** com
+   **esforço de raciocínio no máximo** (`reasoning: { effort: "max" }`), junto com um
    snapshot do seu board — ele devolve um **plano JSON** de ações + a frase que o app vai falar.
 4. O app **anuncia em áudio** o que vai fazer. Para **criar** ou **apagar**, ele **pede confirmação**
    (modal com hold-to-confirm para exclusão). Para mover/prazo/comentar, executa direto.
@@ -105,6 +106,8 @@ cada campo:
 | `OPENAI_STT_LANGUAGE` | idioma da transcrição (padrão `pt`) | — |
 | `OPENROUTER_API_KEY` | análise da fala com o MiMo | [openrouter.ai/keys](https://openrouter.ai/keys) |
 | `OPENROUTER_MODEL` | padrão `xiaomi/mimo-v2.6-pro` | — |
+| `OPENROUTER_REASONING_EFFORT` | esforço de raciocínio: `max` (padrão) · `xhigh` · `high` · `medium` · `low` · `minimal` · `none` | — |
+| `OPENROUTER_MAX_TOKENS` | teto de saída (inclui reasoning tokens), padrão `16000` | — |
 | `OPENROUTER_MAX_PROMPT_PRICE` / `..._COMPLETION_PRICE` | teto de custo opcional (USD por 1M tokens) | — |
 | `TRELLO_API_KEY` | chave da API do Trello | [trello.com/power-ups/admin](https://trello.com/power-ups/admin) |
 | `TRELLO_API_TOKEN` | token com escopo `read, write` | gerado pelo link "Token" no mesmo painel |

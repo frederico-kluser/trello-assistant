@@ -18,6 +18,13 @@ const num = (value) => {
   return Number.isFinite(n) ? n : null;
 };
 
+/** Enum oficial do OpenRouter para reasoning.effort. */
+const REASONING_EFFORTS = new Set(["max", "xhigh", "high", "medium", "low", "minimal", "none"]);
+const reasoningEffort = (value) => {
+  const v = clean(value).toLowerCase();
+  return REASONING_EFFORTS.has(v) ? v : "max";
+};
+
 export const config = {
   repoRoot,
   port: Number.parseInt(clean(process.env.PORT) || "8787", 10),
@@ -36,6 +43,12 @@ export const config = {
     apiKey: clean(process.env.OPENROUTER_API_KEY),
     baseUrl: clean(process.env.OPENROUTER_BASE_URL) || "https://openrouter.ai/api/v1",
     model: clean(process.env.OPENROUTER_MODEL) || "xiaomi/mimo-v2.6-pro",
+    // Esforço de raciocínio do modelo: max | xhigh | high | medium | low | minimal | none.
+    // Padrão "max" — o MiMo 2.6 Pro pensa o máximo antes de devolver o plano.
+    reasoningEffort: reasoningEffort(process.env.OPENROUTER_REASONING_EFFORT),
+    // Teto de saída. Com effort alto os reasoning tokens consomem este orçamento
+    // (e são cobrados como output), então deixamos folga para o JSON final.
+    maxTokens: Number.parseInt(clean(process.env.OPENROUTER_MAX_TOKENS) || "16000", 10),
     maxPromptPrice: num(process.env.OPENROUTER_MAX_PROMPT_PRICE),
     maxCompletionPrice: num(process.env.OPENROUTER_MAX_COMPLETION_PRICE),
   },

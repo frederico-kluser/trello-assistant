@@ -595,10 +595,11 @@
         <div class="dot-col"><span class="dot"></span><span class="line"></span></div>
         <div class="body">
           <h3>OpenRouter: a análise com o MiMo 2.6 Pro</h3>
-          <p>Gere uma chave em <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a> e coloque em <code>OPENROUTER_API_KEY</code>. O modelo padrão já vem configurado como <code>xiaomi/mimo-v2.6-pro</code>; o servidor manda o board inteiro como contexto e recebe um plano JSON de ações. Se a chave estiver sem saldo, o app cai no interpretador local e avisa na tela — nunca quebra.</p>
+          <p>Gere uma chave em <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a> e coloque em <code>OPENROUTER_API_KEY</code>. O modelo padrão já vem configurado como <code>xiaomi/mimo-v2.6-pro</code> <strong>com esforço de raciocínio no máximo</strong> (<code>reasoning: {"effort":"max"}</code> — o MiMo pensa o máximo antes de devolver o plano); o servidor manda o board inteiro como contexto e recebe um plano JSON de ações. Se a chave estiver sem saldo, o app cai no interpretador local e avisa na tela — nunca quebra.</p>
           <div class="tags">
             <span class="tag highlight">OPENROUTER_API_KEY</span>
             <span class="tag">OPENROUTER_MODEL=xiaomi/mimo-v2.6-pro</span>
+            <span class="tag highlight">OPENROUTER_REASONING_EFFORT=max</span>
           </div>
         </div>
       </div>
