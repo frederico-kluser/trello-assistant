@@ -74,6 +74,11 @@ function normalizeBoard(raw, { demo, boardId }) {
 export class TrelloApi {
   constructor(cfg = config.trello) {
     this.cfg = cfg;
+    // A API aceita o shortLink (código do URL trello.com/b/<código>) no PATH
+    // (GET /boards/{id}), mas NÃO há garantia de resolução em parâmetros de
+    // CORPO (ex.: idBoard em POST /lists). Por isso resolvemos o id canónico
+    // no primeiro getBoard() e reutilizamos o id completo nos restantes pedidos.
+    this.resolvedBoardId = null;
   }
 
   get kind() {
@@ -121,7 +126,7 @@ export class TrelloApi {
   async getBoard() {
     const raw = await this.call(`/boards/${encodeURIComponent(this.cfg.boardId)}`, {
       query: {
-        fields: "name,url",
+        fields: "id,name,url",
         lists: "all",
         list_fields: "name,pos,closed",
         cards: "all",
@@ -133,6 +138,8 @@ export class TrelloApi {
         checkItem_fields: "name,state",
       },
     });
+    // Normaliza o shortLink para o id canónico (vem sempre em `id`).
+    this.resolvedBoardId = raw.id ?? this.cfg.boardId;
     const checklistsByCard = {};
     for (const list of raw.checklists ?? []) {
       const idCard = list.idCard ?? list.idBoard;
@@ -207,7 +214,10 @@ export class TrelloApi {
   }
 
   async createList({ name }) {
-    return this.call("/lists", { method: "POST", body: { name, idBoard: this.cfg.boardId } });
+    return this.call("/lists", {
+      method: "POST",
+      body: { name, idBoard: this.resolvedBoardId ?? this.cfg.boardId },
+    });
   }
 
   async addChecklistItem(idCard, { checklist = null, text }) {

@@ -119,7 +119,11 @@ cada campo:
 
 ## Credenciais passo a passo
 
-Guia visual completo, com print-friendly e checklist final: **[`docs/PROXIMOS-PASSOS.html`](docs/PROXIMOS-PASSOS.html)**.
+**➡️ Tutorial completo guiado (com links, `curl`, troubleshooting e segurança):**
+**[`docs/TRELLO-GUIA-COMPLETO.md`](docs/TRELLO-GUIA-COMPLETO.md)** — baseado em pesquisa profunda
+com verificação adversarial (evidência em [`pesquisas/trello-setup-api.md`](pesquisas/trello-setup-api.md)).
+
+Guia visual complementar: **[`docs/PROXIMOS-PASSOS.html`](docs/PROXIMOS-PASSOS.html)**.
 
 Resumo do Trello (a parte manual):
 

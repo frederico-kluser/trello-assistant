@@ -1,0 +1,576 @@
+{
+ "id": "Q11",
+ "estado": "parcial",
+ "confianca": "moderada",
+ "resposta": "(a) O 400 do Trello é `Bad Request` com corpo em **texto simples** (não JSON), literalmente `invalid value for <campo>` ou `invalid id` [F1][F17][F7]: as causas práticas são campos obrigatórios ausentes/em falta por o corpo ter sido enviado como JSON em vez de `application/x-www-form-urlencoded` ou query string [F2][F3][F5], e ids inválidos — board id de 24 caracteres trocado pelo shortLink do URL em parâmetro de corpo [F12][F14][F15], list id inexistente ou de outro board [F14], id em falta [F16]; um ticket oficial confirma que a API valida o id ANTES da autenticação, pelo que com id malformado se recebe `400 invalid id` mesmo sem token válido [F9][F10][F11]. (b) Board fechado/arquivado não deixa de existir: `closed` é um campo de board (`true` = arquivar) [F18] e, com credenciais válidas, o board continua a responder — o sintoma típico de \"board não encontrado\" vem das coleções que por omissão escondem boards fechados e obrigam a pedir cada `filter` separadamente [F19]; integrações de terceiros falham explicitamente com `trello_board_closed` / \"Trello board is closed\" [F20][F21][F22] e guias de apps mandam reabrir o board ou exigem pertencer ao board [F23][F24]; sem credenciais/permissão o resultado é 401 (e 404 fica para rota/modelo inexistente) [F25][F26]. (c) No fluxo do link \"Token\" em app-key, após \"Allow\" o utilizador é redirecionado para uma página que contém o token — não é obrigatório que ele venha no fragmento `#token=` [F27][F28][F29]; o `#token=` só existe quando a app pede `callback_method=fragment` com `return_url`, caso em que o token vai no hash do URL e precisa de JavaScript para ser lido [F30][F31][F32]. O token é longo (64 caracteres hex; tokens novos começam por `ATTA`) [F33][F34][F35], e os casos reais de `invalid token` por cópia são de **conteúdo errado colado**, não de truncagem: colar o API Secret em vez do token [F36], deixar as chaves `{ }` do placeholder [F37], espaços/quotes acidentais [F38][F42], ou token gerado com outra key [F8][F39]; a defesa prática é copiar da fonte e validar imediatamente com `GET /1/members/me` [F28][F40].",
+ "afirmacoes": [
+  {
+   "texto": "O 400 do Trello tem corpo em texto simples com mensagem literal do tipo `invalid value for <campo>` (ex. `invalid value for name`, `invalid value for plugins`, `invalid value for idList`), não um envelope JSON de erro.",
+   "fontes": [
+    "F1",
+    "F17",
+    "F7",
+    "F6"
+   ],
+   "citacao_literal": "Content-Type: text/plain; charset=utf-8 ... invalid value for plugins",
+   "central": true
+  },
+  {
+   "texto": "Causa nº1 de 400: enviar os parâmetros como JSON no corpo; o Trello espera pares chave-valor na query string ou em corpo form-urlencoded, e o erro reporta o primeiro campo que não encontra (`invalid value for name`).",
+   "fontes": [
+    "F2",
+    "F3",
+    "F4"
+   ],
+   "citacao_literal": "Using the code you posted, you end up with an \"invalid value for name\" because it is the first parameter it checks for and does not find.",
+   "central": true
+  },
+  {
+   "texto": "Faltar o header `Content-Type: application/x-www-form-urlencoded` em PUT/POST com corpo faz a chamada falhar com 400 `invalid value for value`; adicionar o header resolve.",
+   "fontes": [
+    "F5"
+   ],
+   "citacao_literal": "I was missing one line in the code... conn.setRequestProperty(\"Content-Type\", \"application/x-www-form-urlencoded\") ... // following line was missing and caused PUT not to work.",
+   "central": true
+  },
+  {
+   "texto": "Usar o shortLink (código curto do URL) em vez do id completo de 24 caracteres em parâmetro de corpo/path devolve 400 `invalid id`/`Invalid objectId`; a correção é resolver o id canónico via API.",
+   "fontes": [
+    "F12",
+    "F13",
+    "F15"
+   ],
+   "citacao_literal": "You can't use the board short link, you have to use the full id of the board for this to work, otherwise you get the mostly useless error “invalid id”",
+   "central": true
+  },
+  {
+   "texto": "id de lista errado (inexistente, de outro board, ou um board id/card id colado no lugar do list id de 24 caracteres hex) devolve 400 `invalid value for idList`; a correção é obter os ids com GET das listas do board.",
+   "fontes": [
+    "F14",
+    "F16"
+   ],
+   "citacao_literal": "Cause: The list ID provided in the idList field does not exist or belongs to a different board than expected. Trello list IDs are 24-character hex strings — using a board ID or card ID instead of a list ID causes this error.",
+   "central": true
+  },
+  {
+   "texto": "Ticket oficial (TRELLO-1770, baixa prioridade): em endpoints que recebem board/card id, a API valida o id ANTES da autenticação, pelo que id malformado devolve 400 `invalid id` mesmo sem token; workaround oficial = garantir sempre key e token válidos.",
+   "fontes": [
+    "F9",
+    "F10",
+    "F11"
+   ],
+   "citacao_literal": "The API validates the board ID before checking authentication. This results in a 400 Bad Request: invalid id response, when the expected behavior would be to validate authentication first and return a 401 Unauthorized",
+   "central": true
+  },
+  {
+   "texto": "Board fechado/arquivado é um estado do modelo (`closed` é campo de board, `true` = arquivar), não um recurso inexistente — logo não há base documental para esperar 404 pelo simples facto de o board estar fechado.",
+   "fontes": [
+    "F18",
+    "F26"
+   ],
+   "citacao_literal": "You're looking for the closed property, which can be set on boards, lists, and cards (true to archive, false to unarchive).",
+   "central": true
+  },
+  {
+   "texto": "O sintoma prático de \"board fechado não aparece\" vem dos filtros: boards fechados ficam fora das coleções por omissão e é preciso pedir cada `filter` (incluindo `closed`) numa chamada separada e juntar os resultados.",
+   "fontes": [
+    "F19"
+   ],
+   "citacao_literal": "To get organization boards that are also closed you need to make a separate call for each filter and then collate the data together yourself.",
+   "central": true
+  },
+  {
+   "texto": "Integrações de terceiros tratam board arquivado como erro próprio com código `trello_board_closed` e mensagem \"Trello board is closed\", e guias de apps pedem para reabrir o board ou exigem ser membro do board para ler/escrever.",
+   "fontes": [
+    "F20",
+    "F21",
+    "F22",
+    "F23",
+    "F24"
+   ],
+   "citacao_literal": "After archiving a temporary Trello board, importing its board URL returned: setup_failed code=trello_board_closed message=Trello board is closed.",
+   "central": true
+  },
+  {
+   "texto": "Sem permissão/credencial o resultado é 401 (\"board privado sem token → 401 unauthorized\"; o 404 oficial é para rota não registada ou modelo inexistente), portanto um board fechado a que o token não tem acesso não dá 200.",
+   "fontes": [
+    "F25",
+    "F26"
+   ],
+   "citacao_literal": "However, unless your board is public (like the Trello Development board), when you try to GET that URL, you'll get a 401 unauthorized error.",
+   "central": true
+  },
+  {
+   "texto": "No fluxo do link \"Token\" da página app-key (response_type=token, sem return_url), clicar \"Allow\" leva o utilizador a uma página que contém o token; o fragmento `#token=` não é o mecanismo deste fluxo.",
+   "fontes": [
+    "F27",
+    "F28",
+    "F29"
+   ],
+   "citacao_literal": "If both return_url and callback_method are not passed, setting the response_type to `token` will return the full user token in the browser window once the user allows the authorization. Trello will not redirect or use postMessage.",
+   "central": true
+  },
+  {
+   "texto": "A URL só traz `#token=…` quando a app usa `callback_method=fragment` com `return_url`: o token é colocado no hash do URL e a página de retorno tem de o ler por JavaScript; fragmentos não são enviados ao servidor.",
+   "fontes": [
+    "F30",
+    "F31",
+    "F32"
+   ],
+   "citacao_literal": "Trello returns its token in the URL fragment: #token=... Browsers do not send URL fragments to servers, so the existing callback handler could not access the token.",
+   "central": true
+  },
+  {
+   "texto": "O token é longo e propenso a cópia parcial: documentação histórica fala de 64 caracteres e os tokens mais recentes começam por `ATTA` (hex de 64 caracteres nos antigos).",
+   "fontes": [
+    "F33",
+    "F34",
+    "F35"
+   ],
+   "citacao_literal": "Newer Trello tokens start with ATTA; older ones are 64-character hex strings. Both work",
+   "central": true
+  },
+  {
+   "texto": "Cuidados que resolvem casos reais de `invalid token` por cópia: não usar o API Secret no lugar do token, remover `{ }` do placeholder, remover espaços/quotes acidentais, não misturar token de outra key, e validar logo com `GET /1/members/me`.",
+   "fontes": [
+    "F36",
+    "F37",
+    "F38",
+    "F8",
+    "F40"
+   ],
+   "citacao_literal": "I was using the API \"Secret\" and not the \"Token\", i realised i had to click on that little text mentioning the \"token\" generation. Now it's working just fine",
+   "central": true
+  }
+ ],
+ "fontes": [
+  {
+   "ref": "F1",
+   "url": "https://developer.atlassian.com/cloud/trello/guides/rest-api/status-codes/",
+   "titulo": "Status Codes in the REST API (Trello)",
+   "ano": "2026",
+   "tipo": "oficial",
+   "nivel": "A",
+   "lida": "integral"
+  },
+  {
+   "ref": "F2",
+   "url": "https://stackoverflow.com/questions/12077599/creating-a-card-via-trello-fails-with-a-400-response",
+   "titulo": "Creating a card via Trello fails with a 400 response",
+   "ano": "2012",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F3",
+   "url": "https://stackoverflow.com/questions/12077599/creating-a-card-via-trello-fails-with-a-400-response",
+   "titulo": "Comentário aceite na mesma pergunta (pares chave-valor em query ou payload)",
+   "ano": "2012",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F4",
+   "url": "https://stackoverflow.com/questions/12077599/creating-a-card-via-trello-fails-with-a-400-response",
+   "titulo": "Explicação do erro «invalid value for name»",
+   "ano": "2012",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F5",
+   "url": "https://stackoverflow.com/questions/18867336/trello-api-put-1-cards-card-id-desc-returns-a-400-response-with-message-in",
+   "titulo": "PUT /1/cards/{id}/desc devolve 400 «invalid value for value»",
+   "ano": "2013",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F6",
+   "url": "https://community.developer.atlassian.com/t/custom-fields-in-the-api-broken/32133",
+   "titulo": "Custom fields in the API broken («invalid value for plugins»)",
+   "ano": "2019",
+   "tipo": "forum",
+   "nivel": "B",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F7",
+   "url": "https://community.developer.atlassian.com/t/custom-fields-in-the-api-broken/32133",
+   "titulo": "Resposta HTTP 400 completa (text/plain, Content-Length 25)",
+   "ano": "2019",
+   "tipo": "forum",
+   "nivel": "B",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F8",
+   "url": "https://community.developer.atlassian.com/t/trello-authorize-app-across-multiple-users/47322",
+   "titulo": "Trello authorize app across multiple users (token de outra key → invalid token)",
+   "ano": "2021",
+   "tipo": "forum",
+   "nivel": "B",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F9",
+   "url": "https://jira.atlassian.com/browse/TRELLO-1770",
+   "titulo": "TRELLO-1770: PUT em board sem token devolve 400 em vez de 401",
+   "ano": "2025",
+   "tipo": "oficial",
+   "nivel": "A",
+   "lida": "integral"
+  },
+  {
+   "ref": "F10",
+   "url": "https://jira.atlassian.com/browse/TRELLO-1770",
+   "titulo": "TRELLO-1770 — reprodutível noutros endpoints com board/card id",
+   "ano": "2025",
+   "tipo": "oficial",
+   "nivel": "A",
+   "lida": "integral"
+  },
+  {
+   "ref": "F11",
+   "url": "https://jira.atlassian.com/browse/TRELLO-1770",
+   "titulo": "TRELLO-1770 — workaround oficial",
+   "ano": "2025",
+   "tipo": "oficial",
+   "nivel": "A",
+   "lida": "integral"
+  },
+  {
+   "ref": "F12",
+   "url": "https://cjr.dev/2014/06/19/moving-cards-to-a-different-board-via-the-trello-api",
+   "titulo": "Moving Cards to a Different Board via the Trello API",
+   "ano": "2014",
+   "tipo": "blogue",
+   "nivel": "D",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F13",
+   "url": "https://community.atlassian.com/forums/Trello-questions/400-ERROR-Invalid-objectId-When-trying-to-create-an-automation/qaq-p/2398737",
+   "titulo": "[400] ERROR-Invalid objectId (resolvido: remapear o campo do board)",
+   "ano": "2023",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "integral"
+  },
+  {
+   "ref": "F14",
+   "url": "https://www.rapidevelopers.com/bolt-ai-integrations/trello",
+   "titulo": "Trello + Bolt.new Integration — «invalid id» para idList",
+   "ano": "2026",
+   "tipo": "documentacao",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F15",
+   "url": "https://dev.to/rahul_sharma_15bd129bc69e/cf7-to-trello-cards-not-being-created-every-cause-explained-2l1b",
+   "titulo": "CF7 to Trello: Cards Not Being Created — board ID vs list ID",
+   "ano": "2026",
+   "tipo": "blogue",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F16",
+   "url": "https://composio.dev/auth/trello",
+   "titulo": "How to find your Trello API Key — tabela de códigos de erro (400 invalid id)",
+   "ano": "2026",
+   "tipo": "blogue",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F17",
+   "url": "https://stackoverflow.com/questions/12077599/creating-a-card-via-trello-fails-with-a-400-response",
+   "titulo": "Resposta HTTP 400 com corpo text/plain «invalid value for name»",
+   "ano": "2012",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F18",
+   "url": "https://stackoverflow.com/questions/26239424/archive-a-trello-board-list-api",
+   "titulo": "Archive a trello board/list (API) — propriedade closed",
+   "ano": "2014",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F19",
+   "url": "https://community.developer.atlassian.com/t/trello-rest-api-get-members-organization-boards-excluding-closed-boards/33245",
+   "titulo": "Get member's organization boards excluding closed boards",
+   "ano": "2019",
+   "tipo": "forum",
+   "nivel": "B",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F20",
+   "url": "https://github.com/martin-francois/symphony-trello/issues/191",
+   "titulo": "Archived Trello board errors use API wording (trello_board_closed)",
+   "ano": "2026",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "integral"
+  },
+  {
+   "ref": "F21",
+   "url": "https://github.com/martin-francois/symphony-trello/issues/191",
+   "titulo": "Symphony-trello #191 — mensagem esperada «board is archived»",
+   "ano": "2026",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "integral"
+  },
+  {
+   "ref": "F22",
+   "url": "https://github.com/martin-francois/symphony-trello/issues/191",
+   "titulo": "Symphony-trello #191 — terminologia UI vs API",
+   "ano": "2026",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "integral"
+  },
+  {
+   "ref": "F23",
+   "url": "https://quicktion.io/need-help/trello-connection-issues",
+   "titulo": "Trello Connection Issues (board fechado / sem permissão)",
+   "ano": "2026",
+   "tipo": "documentacao",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F24",
+   "url": "https://quicktion.io/need-help/trello-connection-issues",
+   "titulo": "Quicktion — board/lista arquivada após configuração",
+   "ano": "2026",
+   "tipo": "documentacao",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F25",
+   "url": "http://www.trello.org/help.html",
+   "titulo": "Using the Trello API (espelho de documento histórico)",
+   "ano": "2011",
+   "tipo": "documentacao",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F26",
+   "url": "https://developer.atlassian.com/cloud/trello/guides/rest-api/status-codes/",
+   "titulo": "Status Codes — 401 e 404 (definições oficiais)",
+   "ano": "2026",
+   "tipo": "oficial",
+   "nivel": "A",
+   "lida": "integral"
+  },
+  {
+   "ref": "F27",
+   "url": "https://developer.atlassian.com/cloud/trello/guides/rest-api/api-introduction/",
+   "titulo": "API Introduction — «redirected to a page that contains the API token»",
+   "ano": "2026",
+   "tipo": "oficial",
+   "nivel": "A",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F28",
+   "url": "https://developer.atlassian.com/cloud/trello/guides/rest-api/authorization/",
+   "titulo": "Authorizing With Trello's REST API — «redirected to a page with your token»",
+   "ano": "2026",
+   "tipo": "oficial",
+   "nivel": "A",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F29",
+   "url": "https://developer.atlassian.com/cloud/trello/guides/rest-api/authorization/",
+   "titulo": "Authorization — tabela de response_type (token na janela do browser)",
+   "ano": "2026",
+   "tipo": "oficial",
+   "nivel": "A",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F30",
+   "url": "https://developer.atlassian.com/cloud/trello/guides/rest-api/authorization/",
+   "titulo": "Authorization — callback_method fragment (token no hash do URL)",
+   "ano": "2026",
+   "tipo": "oficial",
+   "nivel": "A",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F31",
+   "url": "https://github.com/QuackbackIO/quackback/issues/333",
+   "titulo": "Trello integration OAuth callback always returns invalid_request",
+   "ano": "2026",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "integral"
+  },
+  {
+   "ref": "F32",
+   "url": "https://github.com/QuackbackIO/quackback/issues/333",
+   "titulo": "Quackback #333 — correção lendo window.location.hash",
+   "ano": "2026",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "integral"
+  },
+  {
+   "ref": "F33",
+   "url": "http://www.trello.org/help.html",
+   "titulo": "Using the Trello API — «a token (64 characters)»",
+   "ano": "2011",
+   "tipo": "documentacao",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F34",
+   "url": "https://composio.dev/auth/trello",
+   "titulo": "Composio — «Trello returns a 64-character token»",
+   "ano": "2026",
+   "tipo": "blogue",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F35",
+   "url": "https://docs.sim.ai/integrations/trello-service-account",
+   "titulo": "Trello API Tokens — «Newer Trello tokens start with ATTA»",
+   "ano": "2026",
+   "tipo": "documentacao",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F36",
+   "url": "https://community.atlassian.com/forums/discussion/2717775/invalid-token-error",
+   "titulo": "\"Invalid Token\" error (Atlassian Community)",
+   "ano": "2024",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "integral"
+  },
+  {
+   "ref": "F37",
+   "url": "https://community.atlassian.com/forums/discussion/2717775/invalid-token-error",
+   "titulo": "Mesmo tópico — chaves `{ }` do placeholder a invalidar o token",
+   "ano": "2024",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "integral"
+  },
+  {
+   "ref": "F38",
+   "url": "https://trello-mcp.com/getting-started/trello-api-key",
+   "titulo": "Trello API key — trello-mcp (remover espaços/quotes)",
+   "ano": "2026",
+   "tipo": "documentacao",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F39",
+   "url": "https://developer.atlassian.com/cloud/trello/guides/rest-api/authorization/",
+   "titulo": "Authorization — 401 «invalid token» após revogação",
+   "ano": "2026",
+   "tipo": "oficial",
+   "nivel": "A",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F40",
+   "url": "https://help.zluri.com/docs/troubleshooting-5",
+   "titulo": "Zluri Troubleshooting — copiar exatamente, sem caracteres a mais/falta",
+   "ano": "2026",
+   "tipo": "documentacao",
+   "nivel": "C",
+   "lida": "trechos"
+  },
+  {
+   "ref": "F41",
+   "url": "https://community.atlassian.com/forums/Trello-questions/Trello-API-for-board-lists-always-returns-404/qaq-p/2996106",
+   "titulo": "Trello API for board lists always returns 404 (id/token corretos; causa real: `&` em vez de `?`)",
+   "ano": "2025",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "integral"
+  },
+  {
+   "ref": "F42",
+   "url": "https://github.com/martin-francois/symphony-trello/issues/311",
+   "titulo": "Rejeitar caracteres de controlo em credenciais Trello antes do header HTTP",
+   "ano": "2026",
+   "tipo": "forum",
+   "nivel": "C",
+   "lida": "trechos"
+  }
+ ],
+ "contradicoes": [
+  {
+   "tema": "Onde aparece o token após «Allow»",
+   "posicao_a": "[F27][F28] página que contém o token; [F29] response_type=token devolve o token na janela do browser, sem redirect",
+   "posicao_b": "[F30][F31] token no fragmento do URL (#token=) lido por JavaScript",
+   "explicacao": "Mecanismos distintos por parâmetro: o fragmento só se aplica quando a app pede callback_method=fragment com return_url; o fluxo do link «Token»/app-key usa response_type=token e mostra o token numa página. Não há contradição real, mas tutoriais misturam os dois e ensinam o leitor a procurar #token= onde ele não existe.",
+   "resolucao": "Explicitar os dois caminhos e dizer qual se aplica a cada URL"
+  },
+  {
+   "tema": "Board fechado devolve erro em vez de dados",
+   "posicao_a": "[F18][F19] closed é apenas um campo/estado; boards fechados saem por filtro (`filter=all`/`closed`)",
+   "posicao_b": "[F20][F23] ferramentas de integração devolvem erro («Trello board is closed»; reabrir o board)",
+   "explicacao": "O erro é da camada de aplicação (a ferramenta recusa operar sobre board arquivado), não do HTTP da Trello API — nenhuma fonte mostrou 404/403 originado pelo estado fechado.",
+   "resolucao": "Distinguir erro da API Trello de erro da integração que a consome"
+  }
+ ],
+ "lacunas": [
+  "Não foi encontrada fonte oficial nem ≥2 relatos que documentem, com o código HTTP exato, o que a Trello API devolve a GET /1/boards/{id} de um board fechado com credenciais do próprio membro — a expectativa (200 com `\"closed\": true`) é inferência a partir de `closed` ser campo do board [F18] e nunca aparecer na lista de erros [F26], não observação.",
+  "O corpo exato do 400 «invalid id»/«Invalid objectId» não foi capturado em nenhuma fonte (só o texto do ticket oficial [F9][F10]); o corpo capturado literalmente é o de `invalid value for …` [F7][F17].",
+  "Nenhuma fonte encontrada relata truncagem real do token na cópia (ex.: «faltavam os últimos N caracteres»); os casos documentados são de conteúdo errado colado (Secret, placeholders, espaços/quotes) [F36][F37][F38] — a truncagem permanece plausível pelo comprimento [F33][F34][F35], mas sem evidência direta.",
+  "O comportamento do fluxo padrão do link «Token» (após «Allow») não pôde ser observado de forma autenticada nesta pesquisa; a descrição de que existe uma página/instância separada que contém o token vem de documentos oficiais cujos blocos de código/URLs não são extraíveis pelas ferramentas usadas [F27][F28].",
+  "Os tipos/ano de algumas fontes de integração [F14][F16][F23][F34][F40] são material comercial (documentação de fornecedor); usados apenas como corroboração de sintoma→correção, nível C/D.",
+  "Não foi possível reproduzir empiricamente nenhum dos três comportamentos nesta sessão (sem credenciais Trello no ambiente do projeto) — todas as conclusões são documentais."
+ ],
+ "novas_perguntas": [
+  "Um GET autenticado a um board arquivado devolve 200 com `\"closed\": true` em 2026 (confirmável com um board de teste arquivado)?",
+  "O 400 do Trello devolve `invalid id` ou `Invalid objectId` consoante o endpoint (path vs corpo vs querystring)?",
+  "Tokens `ATTA…` têm comprimento fixo documentado, e existe algum aviso da Trello sobre truncagem ao copiar?"
+ ],
+ "consultas": [
+  "trello api 400 invalid objectId body parameter idBoard idList nonexistent",
+  "trello api 400 error response body invalid id shortLink board closed archived returns 404",
+  "trello authorization Allow token appears in URL hash fragment #token copy paste truncated invalid token",
+  "trello token length 64 characters invalid token copied wrong incomplete",
+  "trello API error messages list \"invalid id\" \"invalid value for\" text/plain response API introduction errors",
+  "trello API closed board still readable GET board returns 200 \"closed\":true archived board api",
+  "trello api \"Invalid objectId\" 400 idBoard shortLink short id body parameter",
+  "trello token copy paste truncates missing last characters invalid token textarea select all 64 char",
+  "trello board archived closed API readers non-members 401 unauthorized \"not found\" private board token cannot see",
+  "trello API create card \"invalid value for idList\" OR \"invalid id\" list id from board URL short link 400",
+  "extract developer.atlassian.com/cloud/trello/guides/rest-api/status-codes/",
+  "extract developer.atlassian.com/cloud/trello/guides/rest-api/api-introduction/",
+  "extract developer.atlassian.com/cloud/trello/guides/rest-api/authorization/",
+  "extract jira.atlassian.com/browse/TRELLO-1770",
+  "extract community.atlassian.com/forums/Trello-questions/400-ERROR-Invalid-objectId-When-trying-to-create-an-automation/qaq-p/2398737"
+ ],
+ "alertas_seguranca": [
+  "Nenhum sinal de injeção de prompt nos lotes usados (shield sem flags nos retornos Tavily).",
+  "Contagens de tokens/chaves aparecem redigidas nas fontes; nenhum segredo foi copiado, guardado ou usado nesta pesquisa."
+ ]
+}
