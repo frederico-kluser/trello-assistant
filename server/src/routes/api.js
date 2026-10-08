@@ -2,6 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { capabilities, config, missingSetup } from "../config.js";
 import { AppError, SETUP_GUIDE } from "../lib/errors.js";
+import { startSseHeartbeat } from "../lib/sse-heartbeat.js";
 import { transcribeAudio, vocabularyPrompt } from "../services/stt.js";
 import { planCommand } from "../services/planner.js";
 import { normalizeHistory } from "../services/agent.js";
@@ -114,6 +115,18 @@ apiRouter.post("/agent", async (req, res) => {
     res.setHeader("x-accel-buffering", "no");
     res.flushHeaders();
   }
+  // Ping a cada 15 s enquanto o planejador (JEV + OpenAI) fica em silêncio: sem
+  // bytes na conexão, a borda (Cloudflare/cloudflared) corta o SSE ocioso por
+  // volta dos 100 s (ou devolve 524). Comentários SSE são ignorados pelo parser.
+  const stopHeartbeat = stream ? startSseHeartbeat(res) : () => {};
+  if (stream) {
+    // Toda saída do fluxo desliga o ping. Só a RESPOSTA serve de sinal: o
+    // `req` emite 'close' assim que o corpo do POST é consumido (~1 ms), não
+    // quando o cliente cai — ligar ali mataria o heartbeat na largada.
+    res.on("close", stopHeartbeat);
+    res.on("finish", stopHeartbeat);
+    res.on("error", stopHeartbeat);
+  }
   const send = (event) => {
     if (stream) res.write(`data: ${JSON.stringify(event)}\n\n`);
   };
@@ -140,6 +153,7 @@ apiRouter.post("/agent", async (req, res) => {
     };
     if (stream) {
       send({ type: "plan", ...payload });
+      stopHeartbeat();
       res.end();
     } else {
       res.json(payload);
@@ -150,6 +164,7 @@ apiRouter.post("/agent", async (req, res) => {
       type: "error",
       error: { code: err instanceof AppError ? err.code : "internal_error", message: err instanceof AppError ? err.message : "Erro interno do servidor." },
     });
+    stopHeartbeat();
     res.end();
   }
 });

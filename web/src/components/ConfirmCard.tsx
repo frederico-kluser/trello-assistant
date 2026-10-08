@@ -75,15 +75,16 @@ export function ConfirmCard({ plan, hearing, onConfirm, onCancel }: ConfirmCardP
           )}
         </p>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={onCancel} className="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[13px] text-muted-foreground transition-colors hover:text-foreground active:translate-y-px">
+          {/* 44 px de alvo no celular; a partir de lg o botão volta ao tamanho de antes. */}
+          <button type="button" onClick={onCancel} className="inline-flex min-h-11 items-center gap-2 rounded-full px-3.5 py-2 text-[13px] text-muted-foreground transition-colors hover:text-foreground active:translate-y-px lg:min-h-0">
             Cancelar <span className="kbd">Esc</span>
           </button>
           {destructive ? (
-            <HoldToConfirmButton holdSeconds={1.6} onConfirm={onConfirm} className="rounded-full px-5 py-2.5 text-[13px] font-medium" aria-describedby="confirm-detail">
+            <HoldToConfirmButton holdSeconds={1.6} onConfirm={onConfirm} className="min-h-11 rounded-full px-5 py-2.5 text-[13px] font-medium lg:min-h-0" aria-describedby="confirm-detail">
               Segure para apagar
             </HoldToConfirmButton>
           ) : (
-            <MultiStateButton state="confirm" feedback="pop" announce="Ação confirmada" onClick={onConfirm} surfaceClassName="bg-primary text-primary-foreground" pillClassName="rounded-full px-5 py-2.5 text-[13px] font-medium">
+            <MultiStateButton state="confirm" feedback="pop" announce="Ação confirmada" onClick={onConfirm} surfaceClassName="bg-primary text-primary-foreground" pillClassName="min-h-11 rounded-full px-5 py-2.5 text-[13px] font-medium lg:min-h-0">
               Confirmar
             </MultiStateButton>
           )}

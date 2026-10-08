@@ -14,6 +14,33 @@ import { AppError, SETUP_GUIDE } from "../lib/errors.js";
 
 const SAFE_MIME = /^(audio|video)\//;
 
+/**
+ * Formatos COMPRIMIDOS que o front manda hoje (webm/opus no Android/Chrome e
+ * Safari 18.4+, mp4/AAC no iOS antigo). Um clipe curto aqui tem pouquíssimos
+ * bytes por segundo: 220 ms de fala a 32 kbps ≈ 0,9 KB.
+ */
+const COMPRESSED_MIME = /(webm|ogg|opus|mp4|m4a|aac)/;
+const COMPRESSED_NAME = /\.(webm|ogg|opus|mp4|m4a|aac)$/i;
+
+/** Piso de bytes do WAV PCM 16 kHz (≈0,05 s) — herdado do pipeline antigo. */
+export const WAV_MIN_BYTES = 1500;
+/** Piso dos formatos comprimidos: rejeita só o clipe VAZIO (220 ms ≈ 900 B). */
+export const COMPRESSED_MIN_BYTES = 400;
+
+/**
+ * Piso de bytes POR FORMATO. O antigo `< 1500 B` recusava clipes comprimidos
+ * legítimos. Só o WAV (o único que cresce ~32 KB/s) mantém o piso alto; sem
+ * informação nenhuma de formato, mantém o conservador.
+ */
+export function minAudioBytes(mimetype = "", filename = "") {
+  const mime = String(mimetype ?? "").toLowerCase();
+  if (COMPRESSED_MIME.test(mime)) return { min: COMPRESSED_MIN_BYTES, kind: "compressed" };
+  const name = String(filename ?? "");
+  if (COMPRESSED_NAME.test(name)) return { min: COMPRESSED_MIN_BYTES, kind: "compressed" };
+  if (mime.includes("wav") || /\.wav$/i.test(name)) return { min: WAV_MIN_BYTES, kind: "wav" };
+  return { min: WAV_MIN_BYTES, kind: "unknown" };
+}
+
 /** Extensão que a OpenAI reconhece, derivada do MIME real da gravação. */
 export function extensionFor(mimetype = "", filename = "") {
   const mime = String(mimetype).toLowerCase();
@@ -51,8 +78,11 @@ export async function transcribeAudio({ buffer, filename, mimetype, prompt = "" 
   if (buffer.length > config.openai.maxUploadBytes) {
     throw new AppError("upload_too_large", "O áudio passa do limite de 25 MB.", { status: 413 });
   }
-  // Gravações de ~0,2 s têm poucos bytes: nem vale chamar a OpenAI.
-  if (buffer.length < 1500) {
+  // Gravações de ~0,2 s têm poucos bytes: nem vale chamar a OpenAI. O piso é
+  // POR FORMATO: o comprimido (webm/opus, mp4/AAC) rende ~4 KB/s, então exigir
+  // 1500 B recusaria clipes válidos de fala curta.
+  const floor = minAudioBytes(mimetype, filename);
+  if (buffer.length < floor.min) {
     throw new AppError("audio_too_short", "A gravação ficou curta demais — segure um pouco mais e fale.", { status: 422 });
   }
 

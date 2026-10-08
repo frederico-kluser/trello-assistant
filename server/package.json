@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "check": "node --check src/index.js && node --check src/config.js && node --check src/lib/http.js && node --check src/lib/errors.js && node --check src/domain/actions.js && node --check src/services/stt.js && node --check src/services/agent.js && node --check src/services/intent.js && node --check src/services/trello.js && node --check src/services/jev.js && node --check src/services/jev-planner.js && node --check src/services/planner.js && node --check src/services/board-cache.js && node --check src/services/model-picker.js && node --check src/services/search-engine.js && node --check src/services/session-store.js && node --check src/routes/api.js && node --check scripts/eval-jev.mjs",
+    "check": "node --check src/index.js && node --check src/config.js && node --check src/lib/http.js && node --check src/lib/errors.js && node --check src/lib/sse-heartbeat.js && node --check src/domain/actions.js && node --check src/services/stt.js && node --check src/services/agent.js && node --check src/services/intent.js && node --check src/services/trello.js && node --check src/services/jev.js && node --check src/services/jev-planner.js && node --check src/services/planner.js && node --check src/services/board-cache.js && node --check src/services/model-picker.js && node --check src/services/search-engine.js && node --check src/services/session-store.js && node --check src/routes/api.js && node --check scripts/eval-jev.mjs",
     "test": "node --test",
     "eval:jev": "node scripts/eval-jev.mjs"
   },

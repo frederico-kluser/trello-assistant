@@ -19,6 +19,7 @@ adivinhado.
 - [O que ele faz](#o-que-ele-faz)
 - [JEV decide os comandos simples — sem fallback genérico](#jev-decide-os-comandos-simples--sem-fallback-genérico)
 - [Novidades do upgrade](#novidades-do-upgrade)
+- [Upgrade mobile e rede (out/2026)](#upgrade-mobile-e-rede-out2026)
 - [Microfone: como funciona e como diagnosticar](#microfone-como-funciona-e-como-diagnosticar)
 - [Início rápido (sem nenhuma chave)](#início-rápido-sem-nenhuma-chave)
 - [Configuração completa (.env)](#configuração-completa-env)
@@ -197,10 +198,40 @@ Cinco capacidades novas no fluxo, todas verificadas ponta a ponta:
 
 ---
 
+## Upgrade mobile e rede (out/2026)
+
+Captura, transporte e interface endurecidos para uso no celular — tudo verificado ponta a ponta:
+
+- **Captura de áudio em lote comprimida** — o áudio sobe via `MediaRecorder` em
+  **`audio/webm;codecs=opus` @ 32 kbps** (Android e Safari 18.4+) ou **`audio/mp4` AAC** no iOS < 18.4;
+  sem `MediaRecorder` (ou no modo **áudio bruto**) segue o **WAV 16 kHz mono** legado. São **~40 KB por
+  10 s** contra **~320 KB** no WAV. O **VAD/dead-mic continua no tap do worklet**, na mesma stream, e o
+  upload é **um único POST multipart** — nunca streaming de micro. O `stopRecorder` tem **teto de 2 s**,
+  então o microfone **nunca fica vivo**, e o `/api/stt` aplica **piso mínimo por formato**: **400 B**
+  comprimido, **1500 B** WAV.
+- **Resiliência de rede no cliente** — o SSE tem **idle-timeout de 45 s**, reiniciado a cada chunk
+  (inclusive os `: ping`), com **≤ 3 tentativas** e queda para **fallback não-streaming** com prazo
+  próprio de **150 s**; defeitos locais são **definitivos** (`sse_parse_error`/`sse_listener_error`,
+  sem re-planejar). O upload do STT tem prazo de **150 s** e **1 retry só para falha de rede**. O
+  `/api/agent` emite heartbeat **`: ping` a cada 15 s**, que mantém o stream vivo no corte de ociosidade
+  (~100 s) da edge.
+- **UI mobile** — alvos de toque **≥ 44 px** (enviar, microfone, cancelar, confirmar, refresh, mute,
+  reenviar e menu do microfone), **safe-area insets** no dock e teclado tratado por `visualViewport`
+  com *lift* limitado. A geometria do orbit é orçada pelo **estado real** dos cards: **sem clipping a
+  partir de 340 px** de largura e **byte-idêntica a partir de 720 px**.
+- **Gate do túnel** — se a rota publicada responder **401**, o que falta é o **TOTP** (a menção antiga
+  a `?key=` foi removida do código).
+
+---
+
 ## Microfone: como funciona e como diagnosticar
 
-A captura **não usa `MediaRecorder`** (webm/opus, a fonte clássica de "nunca transcreve"): o áudio é
-capturado como **PCM via AudioWorklet** e enviado como **WAV 16 kHz mono**.
+A captura grava **comprimida em lote** (detalhes na seção
+[Upgrade mobile e rede](#upgrade-mobile-e-rede-out2026)): `MediaRecorder` em
+**`audio/webm;codecs=opus` @ 32 kbps** (Android e Safari 18.4+) ou **`audio/mp4` AAC** no iOS < 18.4 —
+**~40 KB por 10 s** contra ~320 KB do WAV. O **WAV 16 kHz mono** continua como caminho de recurso
+(modo **áudio bruto** ou navegador sem `MediaRecorder`), capturado como **PCM via AudioWorklet**; o
+**VAD vem do tap do worklet, na mesma stream**, e o upload é **um único POST multipart**.
 
 - **Para sozinho**: detecção de fala com piso de ruído calibrado (um ventilador constante vira
   "fundo", não "fala"). Fala e ~1,1 s de silêncio encerram a gravação.
@@ -426,7 +457,7 @@ trello-assistant/
 cd server && npm test          # offline: domínio, parser, pipeline (perguntas, colunas, lotes, roteamento JEV/System Two)
 cd server && npm run check     # sintaxe de todos os módulos
 cd server && npm run eval:jev  # calibração do JEV com chamadas reais (precisa de OPENROUTER_API_KEY)
-cd web    && npm test          # 9 testes de áudio (VAD, WAV, reamostragem, normalização)
+cd web    && npm test          # 83 testes: áudio, cadeia de captura, resiliência de rede e geometria
 cd web    && npm run build     # type-check estrito + build de produção
 ```
 

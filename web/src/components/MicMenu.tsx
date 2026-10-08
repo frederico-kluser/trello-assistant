@@ -122,7 +122,7 @@ export function MicMenu({ open, capture, onClose }: MicMenuProps) {
               return (
                 <label
                   key={device.id || "default"}
-                  className={`flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors ${selected ? "bg-primary/10 text-foreground" : "text-foreground/80 hover:bg-accent/60"}`}
+                  className={`flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors lg:min-h-0 ${selected ? "bg-primary/10 text-foreground" : "text-foreground/80 hover:bg-accent/60"}`}
                 >
                   <input type="radio" name="mic-device" className="sr-only" checked={selected} onChange={() => capture.setDeviceId(device.id)} />
                   <span className={`grid h-4 w-4 shrink-0 place-items-center rounded-full border ${selected ? "border-primary bg-primary text-primary-foreground" : "border-input"}`} aria-hidden="true">

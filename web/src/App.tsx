@@ -668,7 +668,10 @@ export default function App() {
 
   const cardCount = board?.cards.filter((card) => !card.closed).length ?? 0;
   // O dock cresce com o que mostra: no celular sem exemplos; ≥1280 px os exemplos vão para o painel direito.
-  const bottomInset = viewport < 640 ? 138 : viewport >= 1280 ? 156 : 184;
+  // Celular: 150 px porque o alvo de 44 px do botão de enviar deixou o dock 12 px mais alto.
+  // Em iPhone com home bar a banda real é ~env(safe-area-inset-bottom) (≈34 px) maior: o anel
+  // externo pode entrar sob a legenda do dock — subestima conhecida, não medida em runtime.
+  const bottomInset = viewport < 640 ? 150 : viewport >= 1280 ? 156 : 184;
   const planetPhase: Phase = speaking && phase === "idle" ? "speaking" : phase;
 
   const panelMissing = status?.missing ?? [];

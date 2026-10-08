@@ -72,7 +72,7 @@ export function TopBar({ status, boardName, cardCount, sttState, jevState, synce
           onClick={onRefresh}
           aria-label="Atualizar o board agora"
           title={syncedAt ? `Atualizado ${ago(Date.now() - syncedAt)}` : "Atualizar"}
-          className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground active:translate-y-px"
+          className="grid h-11 w-11 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground active:translate-y-px lg:h-7 lg:w-7"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} aria-hidden="true" />
         </button>
@@ -98,7 +98,7 @@ export function TopBar({ status, boardName, cardCount, sttState, jevState, synce
           onClick={() => setMicOpen((value) => !value)}
           aria-expanded={micOpen}
           aria-label="Configurar microfone"
-          className={`inline-flex h-8 max-w-[11rem] items-center gap-2 rounded-md px-2.5 text-[12px] transition-colors active:translate-y-px ${micOpen ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+          className={`inline-flex h-11 min-w-11 max-w-[11rem] items-center justify-center gap-2 rounded-md px-2.5 text-[12px] transition-colors active:translate-y-px lg:h-8 lg:min-w-0 ${micOpen ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
         >
           <Mic className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <span className="hidden truncate lg:inline">{deviceLabel ?? "Microfone"}</span>
@@ -109,7 +109,7 @@ export function TopBar({ status, boardName, cardCount, sttState, jevState, synce
           onClick={onToggleMute}
           aria-pressed={muted}
           aria-label={muted ? "Ativar voz de resposta" : "Silenciar voz de resposta"}
-          className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground active:translate-y-px"
+          className="grid h-11 w-11 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground active:translate-y-px lg:h-8 lg:w-8"
         >
           {muted ? <VolumeX className="h-4 w-4" aria-hidden="true" /> : <Volume2 className="h-4 w-4" aria-hidden="true" />}
         </button>

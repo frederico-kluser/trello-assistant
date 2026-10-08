@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ArrowUp, Pencil, TriangleAlert } from "lucide-react";
 import type { Phase, Plan } from "@/lib/types";
+import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 import { ConfirmCard } from "./ConfirmCard";
 
 export type Caption =
@@ -88,12 +89,43 @@ function CaptionView({ caption, onEdit }: { caption: Caption; onEdit: (text: str
   );
 }
 
+/** Respiro entre o dock e a borda de cima do teclado, em px. */
+const KEYBOARD_GAP = 8;
+
 /** Dock inferior: legenda ao vivo, confirmação inline e entrada de texto. */
 export function CommandDock({ phase, caption, plan, hearing, disabled, examples, draft, onDraft, inputRef, onSubmit, onConfirm, onCancel }: CommandDockProps) {
   const setDraft = onDraft;
   const [editing, setEditing] = useState<string | null>(null);
   const editRef = useRef<HTMLInputElement>(null);
   const busy = phase === "transcribing" || phase === "thinking" || phase === "executing";
+
+  /* Teclado do celular: o dock é `absolute bottom-0` dentro do palco, e no mobile o
+     palco termina bem acima do fundo da janela (68dvh). Subir `insetPx` cru passaria
+     do ponto e jogaria o dock no meio da órbita — então medimos o que falta: a
+     distância entre a borda de baixo do dock (sem o deslocamento já aplicado) e a
+     borda de baixo visível do visual viewport. O teto é o próprio `insetPx`: o dock
+     nunca sobe mais do que o teclado cobre (não desgruda do palco). */
+  const { insetPx } = useKeyboardInset();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const liftRef = useRef(0);
+  const [lift, setLift] = useState(0);
+  const reduce = useReducedMotion();
+
+  useLayoutEffect(() => {
+    if (insetPx <= 0) {
+      liftRef.current = 0;
+      setLift(0);
+      return;
+    }
+    const node = rootRef.current;
+    if (!node) return;
+    const visibleBottom = window.innerHeight - insetPx;
+    const baseBottom = node.getBoundingClientRect().bottom + liftRef.current;
+    const missing = Math.round(baseBottom - visibleBottom + KEYBOARD_GAP);
+    const next = Math.min(Math.max(0, missing), insetPx);
+    liftRef.current = next;
+    setLift(next);
+  }, [insetPx, caption, plan, phase, editing]);
 
   useEffect(() => {
     if (editing !== null) editRef.current?.focus();
@@ -119,7 +151,12 @@ export function CommandDock({ phase, caption, plan, hearing, disabled, examples,
   };
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[60] flex justify-center px-3 pb-3 md:pb-5">
+    <div
+      ref={rootRef}
+      data-command-dock
+      className="pointer-events-none absolute inset-x-0 bottom-0 z-[60] flex justify-center pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+      style={{ bottom: lift, transition: reduce ? "none" : "bottom 180ms ease-out" }}
+    >
       <div className="pointer-events-auto flex w-full max-w-[46rem] flex-col gap-3">
         <AnimatePresence mode="wait" initial={false}>
           {plan && phase === "confirming" ? (
@@ -136,7 +173,7 @@ export function CommandDock({ phase, caption, plan, hearing, disabled, examples,
                     aria-label="Corrigir o que foi entendido"
                     className="min-w-0 flex-1 rounded-lg border border-primary/60 bg-card/80 px-3 py-2 text-lg text-foreground focus:outline-none"
                   />
-                  <button type="submit" className="rounded-lg bg-primary px-3.5 py-2 text-[13px] font-medium text-primary-foreground active:translate-y-px">
+                  <button type="submit" className="min-h-11 rounded-lg bg-primary px-3.5 py-2 text-[13px] font-medium text-primary-foreground active:translate-y-px lg:min-h-0">
                     Reenviar
                   </button>
                 </form>
@@ -161,13 +198,17 @@ export function CommandDock({ phase, caption, plan, hearing, disabled, examples,
             disabled={busy || disabled}
             className="min-w-0 flex-1 bg-transparent text-[14px] text-foreground placeholder:text-muted-foreground/80 focus:outline-none disabled:opacity-50"
           />
+          {/* Alvo de toque de 44 px no celular (o círculo visível continua 32 px,
+              centralizado); a partir de lg o botão volta a ser o próprio círculo. */}
           <button
             type="submit"
             disabled={!draft.trim() || busy || disabled}
             aria-label="Enviar comando"
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition active:translate-y-px disabled:bg-secondary disabled:text-muted-foreground"
+            className="group grid h-11 w-11 shrink-0 place-items-center rounded-full transition active:translate-y-px lg:h-8 lg:w-8"
           >
-            <ArrowUp className="h-4 w-4" strokeWidth={2.4} aria-hidden="true" />
+            <span className="grid h-8 w-8 place-items-center rounded-full bg-primary text-primary-foreground transition-colors group-disabled:bg-secondary group-disabled:text-muted-foreground">
+              <ArrowUp className="h-4 w-4" strokeWidth={2.4} aria-hidden="true" />
+            </span>
           </button>
         </form>
 

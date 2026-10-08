@@ -318,3 +318,24 @@ fala → splitClauses → pre-router determinístico (isCharacteristicSearch)
   Culpepper SIGIR 2017 (cost-aware cascade)
 - Trello API: `filter=visible` ≠ `filter=open` (cards de listas arquivadas) —
   https://developer.atlassian.com/cloud/trello/guides/rest-api/nested-resources
+
+## 13. Áudio em lote comprimido e resiliência de rede (out/2026)
+
+- **Grava e só depois sobe** (nunca streaming de micro): `MediaRecorder` em
+  `audio/webm;codecs=opus` @ 32 kbps (Android/Safari 18.4+) → `audio/mp4` AAC
+  (iOS < 18.4) → **WAV 16 kHz mono** legado (modo áudio bruto ou sem
+  `MediaRecorder`). ~40 KB/10 s contra ~320 KB do WAV, num único POST multipart.
+  O VAD/dead-mic segue no **tap do AudioWorklet** (mesma stream) e o
+  `stopRecorder` tem teto de **2 s** — o microfone nunca fica vivo. O `/api/stt`
+  valida **piso por formato** (400 B comprimido, 1500 B WAV) antes da OpenAI.
+- **Escada de resiliência do SSE** (`web/src/lib/api.ts`): idle-timeout de **45 s**
+  reiniciado a cada chunk (inclusive `: ping`) → **≤ 3 tentativas** → **fallback
+  não-streaming** com prazo próprio de **150 s**. Defeitos locais
+  (`sse_parse_error`, `sse_listener_error`) são **definitivos** — não re-planeja.
+  O STT tem prazo de **150 s** e **1 retry só para falha de rede**.
+- **Heartbeat `: ping` a cada 15 s** no `/api/agent`
+  (`server/src/lib/sse-heartbeat.js`): comentário SSE de frame único mantém o
+  stream vivo no corte de ociosidade (~100 s) da edge, sem virar evento.
+- **UI mobile**: alvos de toque **≥ 44 px**, *safe-area insets* no dock, teclado
+  por `visualViewport` com *lift* limitado e geometria do orbit orçada pelo estado
+  real dos cards (sem clipping ≥ 340 px; **byte-idêntica** ≥ 720 px).

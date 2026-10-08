@@ -1,127 +1,14 @@
 import { AnimatePresence, useReducedMotion } from "motion/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Board, TCard } from "@/lib/types";
+import { computeGeometry, LIST_DIM_GAIN, SELECTED_GAIN, type Ring } from "@/lib/orbit-geometry";
 import { MoreChip, OrbitChip, tidyName, useElementRegistry } from "./OrbitChip";
 
 /* ── geometria ─────────────────────────────────────────────────────────── */
 
-export interface Ring {
-  listId: string;
-  name: string;
-  count: number;
-  shown: TCard[];
-  hidden: number;
-  rx: number;
-  ry: number;
-  dir: 1 | -1;
-  duration: number;
-  base: number;
-  labelAngle: number;
-}
-
-export interface Geometry {
-  w: number;
-  h: number;
-  cx: number;
-  cy: number;
-  cardW: number;
-  cardH: number;
-  planetR: number;
-  compact: boolean;
-  rings: Ring[];
-  hiddenLists: number;
-  focusScale: number;
-}
-
-const hash = (text: string) => {
-  let h = 0;
-  for (let i = 0; i < text.length; i += 1) h = (h * 31 + text.charCodeAt(i)) >>> 0;
-  return h;
-};
-
-/** Elipses que ocupam toda a área livre; cards por anel limitados pela circunferência. */
-export function computeGeometry(w: number, h: number, bottomInset: number, board: Board, spotlightIds: Set<string> | null = null): Geometry {
-  const compact = w < 720;
-  const cardW = compact ? 98 : w < 1100 ? 136 : 152;
-  const cardH = compact ? 34 : 44;
-  const planetR = compact ? 42 : w < 1100 ? 60 : 74;
-  const topPad = 10;
-  const usableH = Math.max(160, h - bottomInset - topPad);
-  const cx = w / 2;
-  const cy = topPad + usableH / 2;
-
-  const rxMax = Math.max(planetR + cardW / 2 + 40, w / 2 - cardW / 2 - (compact ? 2 : 10));
-  const ryMax = Math.max(planetR + cardH / 2 + 30, usableH / 2 - cardH / 2 - 8);
-  // O anel interno precisa liberar o planeta em TODOS os ângulos (nas diagonais o card
-  // retangular invade o círculo): amostra a elipse e cresce até o retângulo não tocar.
-  let rxMin = planetR + cardW / 2 + 18;
-  let ryMin = planetR + cardH / 2 + 10;
-  const hw = (cardW / 2) * 1.06;
-  const hh = (cardH / 2) * 1.06;
-  const clears = (rx: number, ry: number) => {
-    for (let deg = 0; deg < 360; deg += 6) {
-      const a = (deg * Math.PI) / 180;
-      const dx = Math.max(0, Math.abs(rx * Math.cos(a)) - hw);
-      const dy = Math.max(0, Math.abs(ry * Math.sin(a)) - hh);
-      if (Math.hypot(dx, dy) < planetR + 8) return false;
-    }
-    return true;
-  };
-  for (let guard = 0; guard < 40 && !clears(rxMin, ryMin); guard += 1) {
-    rxMin *= 1.04;
-    ryMin *= 1.04;
-  }
-
-  const maxRings = compact ? 3 : w < 900 ? 5 : w < 1200 ? 6 : 8;
-  const lists = board.lists.filter((list) => !list.closed).sort((a, b) => a.pos - b.pos);
-  const open = new Set(lists.map((list) => list.id));
-  const byList = new Map<string, TCard[]>();
-  for (const card of board.cards) {
-    if (card.closed || !open.has(card.idList)) continue;
-    const bucket = byList.get(card.idList) ?? [];
-    bucket.push(card);
-    byList.set(card.idList, bucket);
-  }
-  for (const bucket of byList.values()) bucket.sort((a, b) => a.pos - b.pos);
-
-  // Listas com cards primeiro (anéis vazios só poluem); o resto fica no trilho.
-  const withCards = lists.filter((list) => (byList.get(list.id)?.length ?? 0) > 0);
-  // Spotlight (listagem): só as listas com cards listados viram anel e, nelas, só os
-  // listados aparecem — sem corte por capacidade e sem chip «+N». Se nenhum id da
-  // listagem existir no board, cai no desenho normal (nunca um palco vazio).
-  const spot = spotlightIds && spotlightIds.size > 0 ? spotlightIds : null;
-  const spotLists = spot ? lists.filter((list) => (byList.get(list.id) ?? []).some((card) => spot.has(card.id))) : [];
-  const spotActive = spotLists.length > 0;
-  const ringLimit = spotActive ? Math.max(maxRings, compact ? 5 : 8) : maxRings;
-  const chosen = spotActive ? spotLists.slice(0, ringLimit) : (withCards.length ? withCards : lists).slice(0, maxRings);
-
-  const rings: Ring[] = chosen.map((list, index) => {
-    const t = chosen.length === 1 ? 0.6 : index / (chosen.length - 1);
-    const rx = rxMin + t * Math.max(0, rxMax - rxMin);
-    const ry = ryMin + t * Math.max(0, ryMax - ryMin);
-    const perimeter = 2 * Math.PI * Math.sqrt((rx * rx + ry * ry) / 2);
-    const capacity = Math.max(3, Math.min(compact ? 4 : 14, Math.floor(perimeter / (cardW * (compact ? 1.7 : 1.45)))));
-    const all = byList.get(list.id) ?? [];
-    const highlight = spotActive && spot ? all.filter((card) => spot.has(card.id)) : null;
-    const overflow = highlight ? false : all.length > capacity;
-    const shown = highlight ?? (overflow ? all.slice(0, capacity - 1) : all);
-    return {
-      listId: list.id,
-      name: list.name,
-      count: highlight ? highlight.length : all.length,
-      shown,
-      hidden: highlight ? 0 : all.length - shown.length,
-      rx,
-      ry,
-      dir: index % 2 === 0 ? 1 : -1,
-      duration: 90 + index * 26,
-      base: hash(list.id) % 360,
-      labelAngle: index % 2 === 0 ? 212 : 328,
-    };
-  });
-
-  return { w, h, cx, cy, cardW, cardH, planetR, compact, rings, hiddenLists: Math.max(0, lists.length - chosen.length), focusScale: compact ? 1.2 : 1.45 };
-}
+// A matemática dos anéis mora em `@/lib/orbit-geometry` (módulo puro, testável
+// no `node --test`); reexportada aqui para quem já importava os tipos daqui.
+export type { Geometry, Ring } from "@/lib/orbit-geometry";
 
 interface Slot {
   id: string;
@@ -287,8 +174,9 @@ export function OrbitStage({ board, focusIds, spotlightIds = null, spotlightMayb
         // posição dos cards em foco (fila na frente do planeta, acima do dock)
         const focusIds = slotsRef.current.filter((slot) => focus.has(slot.id)).map((slot) => slot.id).slice(0, 3);
         // O card citado "vem para perto": flutua logo acima do planeta (nunca sob o dock/confirmação).
-        const fy = g.cy - g.planetR - g.cardH * g.focusScale * 0.5 - 30;
-        const gap = g.cardW * g.focusScale + 14;
+        // Posição e escala da fila vêm da geometria — é o que o teste orça no pior estado.
+        const fy = g.focusRowY;
+        const gap = g.focusRowGap;
 
         for (const slot of slotsRef.current) {
           const el = els.current.get(slot.id);
@@ -335,12 +223,12 @@ export function OrbitStage({ board, focusIds, spotlightIds = null, spotlightMayb
             if (!lit) opacity *= 1 - 0.62 * dim.current;
             else {
               opacity = lerp(opacity, 1, dim.current);
-              scale *= 1 + 0.08 * dim.current;
+              scale *= 1 + LIST_DIM_GAIN * dim.current;
             }
           }
 
           if (selectedRef.current === slot.id) {
-            scale *= 1.1;
+            scale *= SELECTED_GAIN;
             opacity = 1;
             z = Math.max(z, 150);
           }
