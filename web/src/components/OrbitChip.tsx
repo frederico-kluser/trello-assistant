@@ -52,6 +52,8 @@ export interface OrbitChipProps {
   width: number;
   compact: boolean;
   focused: boolean;
+  /** Listado com ressalva («talvez»): fica na órbita, mas discreto. */
+  maybe?: boolean;
   selected: boolean;
   register: (id: string, el: HTMLElement | null) => void;
   onSelect: (card: TCard) => void;
@@ -69,6 +71,7 @@ export const OrbitChip = memo(function OrbitChip({
   width,
   compact,
   focused,
+  maybe = false,
   selected,
   register,
   onSelect,
@@ -96,9 +99,10 @@ export const OrbitChip = memo(function OrbitChip({
         onPointerLeave={() => onHover(-1)}
         onFocus={() => onHover(ringIndex)}
         onBlur={() => onHover(-1)}
-        aria-label={`Card ${card.name}, lista ${listName}${card.due ? `, prazo ${dueText(card.due)}` : ""}`}
+        aria-label={`Card ${card.name}, lista ${listName}${card.due ? `, prazo ${dueText(card.due)}` : ""}${maybe ? ", talvez" : ""}`}
         aria-pressed={selected}
         data-focused={focused}
+        data-maybe={maybe || undefined}
         data-selected={selected}
         initial={reduce ? false : { opacity: 0, scale: 0.4, filter: "blur(8px)" }}
         animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
@@ -107,8 +111,19 @@ export const OrbitChip = memo(function OrbitChip({
         className="orbit-chip pointer-events-auto relative block w-full overflow-hidden rounded-lg text-left"
       >
         {barLabel && <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-[3px] ${labelClass(barLabel.color)}`} />}
+        {/* «talvez»: mesmo token visual do painel de decisões — reduzido, nunca escondido. */}
+        {maybe && (
+          <span
+            aria-hidden="true"
+            className={`pointer-events-none absolute right-1 top-1 rounded-full bg-warning/15 font-mono uppercase leading-none tracking-wider text-warning ${
+              compact ? "px-1 py-px text-[8px]" : "px-1.5 py-0.5 text-[8.5px]"
+            }`}
+          >
+            talvez
+          </span>
+        )}
         <span className={`block ${compact ? "px-2 py-1" : "px-2.5 py-1.5"} ${barLabel ? "pl-3" : ""}`}>
-          <span className={`line-clamp-2 text-pretty font-medium leading-[1.25] text-card-foreground ${compact ? "text-[10.5px]" : "text-[12px]"}`}>
+          <span className={`line-clamp-2 text-pretty font-medium leading-[1.25] text-card-foreground ${compact ? "text-[10.5px]" : "text-[12px]"} ${maybe ? (compact ? "pr-6" : "pr-9") : ""}`}>
             {card.name}
           </span>
           {(focused || selected) && (

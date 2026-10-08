@@ -1,29 +1,231 @@
 [
-  { "say": "move escrever o readme para feito", "type": "move_card", "card": "Escrever o README", "list": "Feito" },
-  { "say": "passa o cabo hdmi pra fazendo", "type": "move_card", "card": "Comprar cabo HDMI", "list": "Fazendo" },
-  { "say": "joga a playlist no feito", "type": "move_card", "card": "Playlist para o modo foco", "list": "Feito" },
-  { "say": "põe o contador em fazendo", "type": "move_card", "card": "Ligar para o contador", "list": "Fazendo" },
-  { "say": "o readme vai pra a fazer", "type": "move_card", "card": "Escrever o README", "list": "A Fazer" },
-  { "say": "cria um card chamado revisar contrato na lista a fazer", "type": "create_card", "list": "A Fazer" },
-  { "say": "adiciona uma tarefa comprar café na lista ideias", "type": "create_card", "list": "Ideias" },
-  { "say": "novo card ligar para o dentista amanhã", "type": "create_card" },
-  { "say": "crie um card pra revisar o pull request", "type": "create_card" },
-  { "say": "apaga o card cabo hdmi", "type": "delete_card", "card": "Comprar cabo HDMI" },
-  { "say": "exclui a playlist do modo foco", "type": "delete_card", "card": "Playlist para o modo foco" },
-  { "say": "coloca prazo amanhã no readme", "type": "set_due", "card": "Escrever o README" },
-  { "say": "muda a data do contador pra sexta", "type": "set_due", "card": "Ligar para o contador" },
-  { "say": "coloca uma data pro cabo hdmi dia 20", "type": "set_due", "card": "Comprar cabo HDMI" },
-  { "say": "tira o prazo da proposta do cliente", "type": "set_due", "card": "Revisar proposta do cliente" },
-  { "say": "marca o readme como feito", "type": "set_due", "card": "Escrever o README" },
-  { "say": "arquiva o card playlist para o modo foco", "type": "archive_card", "card": "Playlist para o modo foco" },
-  { "say": "o que eu tenho na lista fazendo?", "type": "query" },
-  { "say": "me dá um resumo do board", "type": "query" },
-  { "say": "renomeia o readme para guia de uso", "type": "update_card", "card": "Escrever o README" },
-  { "say": "comenta no card proposta do cliente que o valor foi aprovado", "type": "comment_card", "card": "Revisar proposta do cliente" },
-  { "say": "cria uma lista chamada urgentes", "type": "create_list" },
-  { "say": "move o readme para feito e arquiva o card ligar para o contador", "n": 2 },
-  { "say": "bom dia tudo bem", "reject": true },
-  { "say": "asdf qwer uh", "reject": true },
-  { "say": "quanto é dois mais dois", "reject": true },
-  { "say": "move o card da lista pra outro lugar", "ambiguous": true }
+  {
+    "say": "move escrever o readme para feito",
+    "type": "move_card",
+    "card": "Escrever o README",
+    "list": "Feito"
+  },
+  {
+    "say": "passa o cabo hdmi pra fazendo",
+    "type": "move_card",
+    "card": "Comprar cabo HDMI",
+    "list": "Fazendo"
+  },
+  {
+    "say": "joga a playlist no feito",
+    "type": "move_card",
+    "card": "Playlist para o modo foco",
+    "list": "Feito"
+  },
+  {
+    "say": "põe o contador em fazendo",
+    "type": "move_card",
+    "card": "Ligar para o contador",
+    "list": "Fazendo"
+  },
+  {
+    "say": "o readme vai pra a fazer",
+    "type": "move_card",
+    "card": "Escrever o README",
+    "list": "A Fazer"
+  },
+  {
+    "say": "cria um card chamado revisar contrato na lista a fazer",
+    "type": "create_card",
+    "list": "A Fazer"
+  },
+  {
+    "say": "adiciona uma tarefa comprar café na lista ideias",
+    "type": "create_card",
+    "list": "Ideias"
+  },
+  {
+    "say": "novo card ligar para o dentista amanhã",
+    "type": "create_card"
+  },
+  {
+    "say": "crie um card pra revisar o pull request",
+    "type": "create_card"
+  },
+  {
+    "say": "apaga o card cabo hdmi",
+    "type": "delete_card",
+    "card": "Comprar cabo HDMI"
+  },
+  {
+    "say": "exclui a playlist do modo foco",
+    "type": "delete_card",
+    "card": "Playlist para o modo foco"
+  },
+  {
+    "say": "coloca prazo amanhã no readme",
+    "type": "set_due",
+    "card": "Escrever o README"
+  },
+  {
+    "say": "muda a data do contador pra sexta",
+    "type": "set_due",
+    "card": "Ligar para o contador"
+  },
+  {
+    "say": "coloca uma data pro cabo hdmi dia 20",
+    "type": "set_due",
+    "card": "Comprar cabo HDMI"
+  },
+  {
+    "say": "tira o prazo da proposta do cliente",
+    "type": "set_due",
+    "card": "Revisar proposta do cliente"
+  },
+  {
+    "say": "marca o readme como feito",
+    "type": "set_due",
+    "card": "Escrever o README"
+  },
+  {
+    "say": "arquiva o card playlist para o modo foco",
+    "type": "archive_card",
+    "card": "Playlist para o modo foco"
+  },
+  {
+    "say": "renomeia o readme para guia de uso",
+    "type": "update_card",
+    "card": "Escrever o README"
+  },
+  {
+    "say": "comenta no card proposta do cliente que o valor foi aprovado",
+    "type": "comment_card",
+    "card": "Revisar proposta do cliente"
+  },
+  {
+    "say": "cria uma lista chamada urgentes",
+    "type": "create_list"
+  },
+  {
+    "say": "move o readme para feito e arquiva o card ligar para o contador",
+    "n": 2
+  },
+  {
+    "say": "o que eu tenho para fazer?",
+    "listingIncludes": [
+      "Revisar proposta do cliente",
+      "Comprar cabo HDMI",
+      "Ligar para o contador",
+      "Montar o board de voz",
+      "Escrever o README",
+      "Pagar conta de luz"
+    ],
+    "listingExcludes": [
+      "Criar o repositório"
+    ]
+  },
+  {
+    "say": "o que eu tenho na lista fazendo?",
+    "listingIncludes": [
+      "Montar o board de voz",
+      "Escrever o README"
+    ],
+    "listingExcludes": [
+      "Explorar anéis de Júpiter no visual",
+      "Playlist para o modo foco",
+      "Revisar proposta do cliente",
+      "Comprar cabo HDMI",
+      "Ligar para o contador",
+      "Criar o repositório",
+      "Pagar conta de luz"
+    ]
+  },
+  {
+    "say": "o que eu tenho na lista a fazer?",
+    "listingIncludes": [
+      "Revisar proposta do cliente",
+      "Comprar cabo HDMI",
+      "Ligar para o contador",
+      "Pagar conta de luz"
+    ],
+    "listingExcludes": [
+      "Explorar anéis de Júpiter no visual",
+      "Playlist para o modo foco",
+      "Montar o board de voz",
+      "Escrever o README",
+      "Criar o repositório"
+    ]
+  },
+  {
+    "say": "o que tem na lista ideias?",
+    "listingIncludes": [
+      "Explorar anéis de Júpiter no visual",
+      "Playlist para o modo foco"
+    ],
+    "listingExcludes": [
+      "Revisar proposta do cliente",
+      "Comprar cabo HDMI",
+      "Ligar para o contador",
+      "Montar o board de voz",
+      "Escrever o README",
+      "Criar o repositório",
+      "Pagar conta de luz"
+    ]
+  },
+  {
+    "say": "procura o card do contador",
+    "listingIncludes": [
+      "Ligar para o contador"
+    ],
+    "listingExcludes": [
+      "Explorar anéis de Júpiter no visual",
+      "Playlist para o modo foco",
+      "Revisar proposta do cliente",
+      "Comprar cabo HDMI",
+      "Montar o board de voz",
+      "Escrever o README",
+      "Criar o repositório",
+      "Pagar conta de luz"
+    ]
+  },
+  {
+    "say": "o que está atrasado?",
+    "listingIncludes": [
+      "Pagar conta de luz"
+    ],
+    "listingExcludes": [
+      "Explorar anéis de Júpiter no visual",
+      "Playlist para o modo foco",
+      "Revisar proposta do cliente",
+      "Comprar cabo HDMI",
+      "Ligar para o contador",
+      "Escrever o README"
+    ]
+  },
+  {
+    "say": "o que vence esta semana?",
+    "listingIncludes": [
+      "Montar o board de voz"
+    ],
+    "listingExcludes": [
+      "Explorar anéis de Júpiter no visual",
+      "Playlist para o modo foco",
+      "Escrever o README"
+    ]
+  },
+  {
+    "say": "me dá um resumo do board",
+    "summary": true
+  },
+  {
+    "say": "bom dia tudo bem",
+    "reject": true
+  },
+  {
+    "say": "asdf qwer uh",
+    "reject": true
+  },
+  {
+    "say": "quanto é dois mais dois",
+    "reject": true
+  },
+  {
+    "say": "move o card da lista pra outro lugar",
+    "ambiguous": true
+  }
 ]

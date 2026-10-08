@@ -32,7 +32,6 @@ interface TopBarProps {
   cardCount: number;
   sttState: EngineState;
   jevState: EngineState;
-  mimoState: EngineState;
   syncedAt: number | null;
   refreshing: boolean;
   muted: boolean;
@@ -44,7 +43,7 @@ interface TopBarProps {
 
 const ago = (ms: number) => (ms < 8000 ? "agora" : ms < 60_000 ? `há ${Math.round(ms / 1000)} s` : `há ${Math.round(ms / 60_000)} min`);
 
-export function TopBar({ status, boardName, cardCount, sttState, jevState, mimoState, syncedAt, refreshing, muted, capture, guide, onRefresh, onToggleMute }: TopBarProps) {
+export function TopBar({ status, boardName, cardCount, sttState, jevState, syncedAt, refreshing, muted, capture, guide, onRefresh, onToggleMute }: TopBarProps) {
   const [micOpen, setMicOpen] = useState(false);
   const caps = status?.capabilities;
   const deviceLabel = capture.devices.find((device) => device.id === capture.deviceId)?.label;
@@ -78,8 +77,7 @@ export function TopBar({ status, boardName, cardCount, sttState, jevState, mimoS
 
       <div className="hidden items-center md:flex" aria-label="Motores em uso">
         <EngineChip label="Voz" model={caps?.models.stt ?? null} state={sttState} title="Transcrição (OpenAI)" />
-        <EngineChip label="JEV" model={caps?.models.jev ?? null} state={jevState} title="Classifica a intenção, o card e a lista em milissegundos" />
-        <EngineChip label="MiMo" model={caps?.models.mimo ?? null} state={mimoState} title="Reserva: só entra quando o JEV se abstém" />
+        <EngineChip label="JEV" model={caps?.models.jev ?? null} state={jevState} title="Classifica a intenção (CRUD), filtra colunas e avalia os cards em lotes" />
       </div>
 
       <div className="relative flex shrink-0 items-center gap-1">

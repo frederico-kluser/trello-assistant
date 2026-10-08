@@ -260,6 +260,12 @@
     border-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
     background: hsl(226 28% 14% / 0.96);
   }
+  /* «talvez»: listado com ressalva — contorno tracejado, sem brilho (a opacidade
+     menor vem do loop de animação). Foco/seleção continuam vencendo por vir depois. */
+  .orbit-chip[data-maybe="true"] {
+    border-style: dashed;
+    border-color: color-mix(in srgb, var(--color-warning) 38%, transparent);
+  }
   .orbit-chip[data-focused="true"] {
     border-color: var(--color-primary);
     background: hsl(226 28% 13% / 0.98);

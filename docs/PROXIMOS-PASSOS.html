@@ -387,7 +387,8 @@
       <span class="prompt-label">Brief</span>
       <p>
         O app já está construído: microfone, transcrição pela API STT da OpenAI, análise com o
-        MiMo 2.6 Pro no OpenRouter e integração total com a API REST do Trello (criar, apagar,
+        JEV da TypeSafe (System One) — e, quando a fala traz várias ações, com o Gemini 3.8 Flash
+        (System Two) — no OpenRouter, e integração total com a API REST do Trello (criar, apagar,
         mover, prazos, etiquetas, comentários, checklists, listas). As credenciais NÃO estão no
         repositório. Este documento é o caminho exato — em ordem — para você preencher as chaves,
         ligar seu board real e publicar o app sem vazar nenhum segredo.
@@ -439,8 +440,8 @@
         <span class="stat-label">Sem OPENROUTER_API_KEY</span>
         <p style="font-size:0.9rem;margin-top:8px">
           A análise do que você falou é feita por um interpretador local de comandos em pt-BR.
-          Com a chave, o <strong>JEV</strong> (<code>typesafe/jev-1.13</code>) passa a decidir em ~0,4 s e o <code>xiaomi/mimo-v2.6-pro</code> assume só quando ele se abstém, com o board
-          inteiro como contexto.
+          Com a chave, o <strong>JEV</strong> (<code>typesafe/jev-1.13</code>) decide intenção, colunas e cards em ~0,4 s — consultas de
+          listagem passam por uma cascata colunas → cards em lotes. Sem fallback genérico: quando o JEV se abstém, o app pede para reformular — a exceção são as falas com várias ações, que vão ao <strong>Gemini 3.8 Flash</strong> (System Two).
         </p>
       </div>
       <div class="stat-card" style="text-align:left">
@@ -513,9 +514,10 @@
 
         <g transform="translate(670, 132)">
           <rect width="190" height="86" rx="10" fill="var(--card)" stroke="var(--border)" stroke-width="1.5"/>
-          <text x="95" y="28" text-anchor="middle" font-family="var(--font-sans)" font-size="12.5" font-weight="600" fill="var(--foreground)">OpenRouter · MiMo</text>
-          <text x="95" y="50" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--muted-foreground)">OPENROUTER_API_KEY</text>
-          <text x="95" y="70" text-anchor="middle" font-family="var(--font-mono)" font-size="9.5" fill="var(--muted-foreground)">fase 3</text>
+          <text x="95" y="28" text-anchor="middle" font-family="var(--font-sans)" font-size="12.5" font-weight="600" fill="var(--foreground)">OpenRouter · Gemini</text>
+          <text x="95" y="48" text-anchor="middle" font-family="var(--font-mono)" font-size="10" fill="var(--muted-foreground)">OPENROUTER_API_KEY</text>
+          <text x="95" y="65" text-anchor="middle" font-family="var(--font-mono)" font-size="9.5" fill="var(--muted-foreground)">System One + System Two</text>
+          <text x="95" y="80" text-anchor="middle" font-family="var(--font-mono)" font-size="9.5" fill="var(--muted-foreground)">fase 3</text>
         </g>
 
         <g transform="translate(670, 244)">
@@ -594,12 +596,14 @@
         <div class="when">Fase 3</div>
         <div class="dot-col"><span class="dot"></span><span class="line"></span></div>
         <div class="body">
-          <h3>OpenRouter: o JEV decide e o MiMo 2.6 Pro fica de reserva</h3>
-          <p>Gere uma chave em <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a> e coloque em <code>OPENROUTER_API_KEY</code>. O modelo padrão já vem configurado como <code>xiaomi/mimo-v2.6-pro</code> <strong>com esforço de raciocínio no máximo</strong> (<code>reasoning: {"effort":"max"}</code> — o MiMo pensa o máximo antes de devolver o plano); o servidor manda o board inteiro como contexto e recebe um plano JSON de ações. Se a chave estiver sem saldo, o app cai no interpretador local e avisa na tela — nunca quebra.</p>
+          <h3>OpenRouter: JEV nos comandos simples, Gemini nos compostos</h3>
+          <p>Gere uma chave em <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a> e coloque em <code>OPENROUTER_API_KEY</code>. O <strong>JEV</strong> classifica a intenção (CRUD), o card, a lista e as colunas numa chamada; consultas de listagem seguem a cascata colunas → cards em lotes de 16 (ver <code>docs/PIPELINE-JEV.md</code>). Quando a fala traz <strong>várias ações</strong> («move A para terminado, move B para terminado e move C para fazendo»), o comando inteiro vai ao <strong>System Two</strong> (<code>google/gemini-3.8-flash</code>), que planeia as 2..N ações de uma vez e, no futuro, também gera texto em criar/editar. Fora isso <strong>não há fallback genérico</strong>: quando o JEV se abstém ou está indisponível, o app pede para reformular. Se a chave estiver sem saldo, o app cai no interpretador local e avisa na tela — nunca quebra.</p>
           <div class="tags">
             <span class="tag highlight">OPENROUTER_API_KEY</span>
-            <span class="tag">OPENROUTER_MODEL=xiaomi/mimo-v2.6-pro</span>
-            <span class="tag highlight">OPENROUTER_REASONING_EFFORT=max</span>
+            <span class="tag">OPENROUTER_MODEL=google/gemini-3.8-flash</span>
+            <span class="tag">OPENROUTER_REASONING_EFFORT=max</span>
+            <span class="tag">JEV_CARD_BATCH=16</span>
+            <span class="tag highlight">JEV_LIST_INCLUDE=0.5</span>
           </div>
         </div>
       </div>
@@ -682,13 +686,14 @@
     </details>
 
     <details>
-      <summary>Gerar a chave do OpenRouter (serve ao JEV e ao MiMo 2.6 Pro)</summary>
+      <summary>Gerar a chave do OpenRouter (serve ao JEV e ao Gemini — System One + System Two)</summary>
       <div class="details-body">
         <ol>
           <li>Abra <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a>.</li>
           <li><strong>Create Key</strong>, dê um nome (ex.: <em>trello-orbit</em>) e — recomendado — defina um <em>credit limit</em> para a chave para nunca gastar acima do esperado.</li>
           <li>Copie a chave (formato <code>sk-or-v1-…</code>) para <code>OPENROUTER_API_KEY</code> no <code>.env</code>.</li>
-          <li>Deixe <code>OPENROUTER_MODEL=xiaomi/mimo-v2.6-pro</code> (padrão) ou troque por qualquer outro modelo do catálogo.</li>
+          <li>Deixe <code>OPENROUTER_MODEL=google/gemini-3.8-flash</code> (padrão — o System Two que planeia comandos compostos e que, no futuro, gera texto em criar/editar) ou troque por qualquer outro modelo do catálogo.</li>
+          <li>O esforço de raciocínio do Gemini é o <code>OPENROUTER_REASONING_EFFORT</code> (<code>max</code> por padrão): quanto ele pensa antes de devolver o plano composto.</li>
           <li>Pronto: o servidor já envia os headers de atribuição (<code>HTTP-Referer</code>, <code>X-OpenRouter-Title</code>) e trata 429 com backoff automático.</li>
         </ol>
       </div>
@@ -730,9 +735,10 @@
       <h2>Checklist de verificação final</h2>
     </div>
     <ul class="checklist">
-      <li><span class="box"></span><span><strong>Conexão:</strong> o cabeçalho mostra <code>STT: gpt-4o-mini-transcribe</code>, <code>JEV: jev-1.13</code> e <code>MiMo: mimo-v2.6-pro</code> e <code>Board: Trello</code> — sem nenhum selo «modo demo».</span></li>
+      <li><span class="box"></span><span><strong>Conexão:</strong> o cabeçalho mostra <code>STT: gpt-4o-mini-transcribe</code>, <code>JEV: jev-1.13</code> e <code>Board: Trello</code> — sem nenhum selo «modo demo».</span></li>
       <li><span class="box"></span><span><strong>Criar por voz:</strong> fale «cria card testar órbita na lista a fazer» → o app <em>pergunta</em> em áudio, mostra o modal, e só cria após confirmar (com confete).</span></li>
       <li><span class="box"></span><span><strong>Mover:</strong> fale «move testar órbita para fazendo» → o card desliza de anel sem pedir confirmação e o app narra o que fez.</span></li>
+      <li><span class="box"></span><span><strong>Comando composto:</strong> fale «move testar órbita para terminado, move comprar cabo para a fazer e cria um card chamado ligar ao contador» → o painel mostra <em>Comandos simultâneos</em> («Gemini 3.8 Flash planejou 3 ações · …») e as três executam em sequência (a criação pede confirmação).</span></li>
       <li><span class="box"></span><span><strong>Prazo:</strong> fale «coloca prazo amanhã no card testar órbita» → o chip de data aparece no card.</span></li>
       <li><span class="box"></span><span><strong>Apagar:</strong> fale «apaga o card testar órbita» → modal destrutivo com botão de <em>segurar para confirmar</em>; o card se dissolve da órbita.</span></li>
       <li><span class="box"></span><span><strong>Destaque:</strong> ao mencionar um card, ele vem para a frente da órbita com a borda iluminada e aparece no painel de voo.</span></li>

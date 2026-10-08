@@ -1,11 +1,10 @@
 import { AnimatePresence, motion } from "motion/react";
-import { AlertTriangle, CheckCircle2, Cpu, Info, Mic, Sparkles, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, Mic, Sparkles, Zap } from "lucide-react";
 import type { FeedItem } from "@/lib/types";
 
 const ICON = {
   you: Mic,
   jev: Zap,
-  mimo: Cpu,
   plan: Sparkles,
   done: CheckCircle2,
   error: AlertTriangle,
@@ -15,7 +14,6 @@ const ICON = {
 const TONE: Record<FeedItem["kind"], string> = {
   you: "text-foreground",
   jev: "text-primary",
-  mimo: "text-primary",
   plan: "text-muted-foreground",
   done: "text-success",
   error: "text-destructive",

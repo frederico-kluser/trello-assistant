@@ -40,7 +40,7 @@ const hash = (text: string) => {
 };
 
 /** Elipses que ocupam toda a área livre; cards por anel limitados pela circunferência. */
-export function computeGeometry(w: number, h: number, bottomInset: number, board: Board): Geometry {
+export function computeGeometry(w: number, h: number, bottomInset: number, board: Board, spotlightIds: Set<string> | null = null): Geometry {
   const compact = w < 720;
   const cardW = compact ? 98 : w < 1100 ? 136 : 152;
   const cardH = compact ? 34 : 44;
@@ -86,7 +86,14 @@ export function computeGeometry(w: number, h: number, bottomInset: number, board
 
   // Listas com cards primeiro (anéis vazios só poluem); o resto fica no trilho.
   const withCards = lists.filter((list) => (byList.get(list.id)?.length ?? 0) > 0);
-  const chosen = (withCards.length ? withCards : lists).slice(0, maxRings);
+  // Spotlight (listagem): só as listas com cards listados viram anel e, nelas, só os
+  // listados aparecem — sem corte por capacidade e sem chip «+N». Se nenhum id da
+  // listagem existir no board, cai no desenho normal (nunca um palco vazio).
+  const spot = spotlightIds && spotlightIds.size > 0 ? spotlightIds : null;
+  const spotLists = spot ? lists.filter((list) => (byList.get(list.id) ?? []).some((card) => spot.has(card.id))) : [];
+  const spotActive = spotLists.length > 0;
+  const ringLimit = spotActive ? Math.max(maxRings, compact ? 5 : 8) : maxRings;
+  const chosen = spotActive ? spotLists.slice(0, ringLimit) : (withCards.length ? withCards : lists).slice(0, maxRings);
 
   const rings: Ring[] = chosen.map((list, index) => {
     const t = chosen.length === 1 ? 0.6 : index / (chosen.length - 1);
@@ -95,14 +102,15 @@ export function computeGeometry(w: number, h: number, bottomInset: number, board
     const perimeter = 2 * Math.PI * Math.sqrt((rx * rx + ry * ry) / 2);
     const capacity = Math.max(3, Math.min(compact ? 4 : 14, Math.floor(perimeter / (cardW * (compact ? 1.7 : 1.45)))));
     const all = byList.get(list.id) ?? [];
-    const overflow = all.length > capacity;
-    const shown = overflow ? all.slice(0, capacity - 1) : all;
+    const highlight = spotActive && spot ? all.filter((card) => spot.has(card.id)) : null;
+    const overflow = highlight ? false : all.length > capacity;
+    const shown = highlight ?? (overflow ? all.slice(0, capacity - 1) : all);
     return {
       listId: list.id,
       name: list.name,
-      count: all.length,
+      count: highlight ? highlight.length : all.length,
       shown,
-      hidden: all.length - shown.length,
+      hidden: highlight ? 0 : all.length - shown.length,
       rx,
       ry,
       dir: index % 2 === 0 ? 1 : -1,
@@ -132,9 +140,19 @@ export interface PulseSignal {
   tone: "create" | "delete" | "ok";
 }
 
+/** Conjunto sem ids: evita recriar Set vazio (a memoização da geometria depende da identidade). */
+const NO_IDS: Set<string> = new Set();
+
 interface OrbitStageProps {
   board: Board;
   focusIds: Set<string>;
+  /**
+   * Listagem em foco: quando não é null, a órbita mostra apenas estes cards
+   * (sem corte por capacidade e sem chip «+N»); os demais saem com transição.
+   */
+  spotlightIds?: Set<string> | null;
+  /** Subconjunto de `spotlightIds` marcado como «talvez» (fica discreto, nunca escondido). */
+  spotlightMaybeIds?: Set<string>;
   selectedId: string | null;
   activeListId: string | null;
   bottomInset: number;
@@ -149,7 +167,7 @@ interface OrbitStageProps {
  * Palco orbital em tela cheia. Um único loop rAF posiciona todos os cards
  * (transform/opacity direto no DOM): zero re-render do React por frame.
  */
-export function OrbitStage({ board, focusIds, selectedId, activeListId, bottomInset, pulse, onSelectCard, onSelectList, children }: OrbitStageProps) {
+export function OrbitStage({ board, focusIds, spotlightIds = null, spotlightMaybeIds = NO_IDS, selectedId, activeListId, bottomInset, pulse, onSelectCard, onSelectList, children }: OrbitStageProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const reduce = useReducedMotion();
@@ -163,7 +181,7 @@ export function OrbitStage({ board, focusIds, selectedId, activeListId, bottomIn
     return () => observer.disconnect();
   }, []);
 
-  const geo = useMemo(() => (size.w > 0 ? computeGeometry(size.w, size.h, bottomInset, board) : null), [size, bottomInset, board]);
+  const geo = useMemo(() => (size.w > 0 ? computeGeometry(size.w, size.h, bottomInset, board, spotlightIds) : null), [size, bottomInset, board, spotlightIds]);
 
   const listNames = useMemo(() => new Map(board.lists.map((list) => [list.id, list.name])), [board.lists]);
 
@@ -185,6 +203,7 @@ export function OrbitStage({ board, focusIds, selectedId, activeListId, bottomIn
   const selectedRef = useRef(selectedId);
   const activeListRef = useRef(activeListId);
   const reduceRef = useRef(Boolean(reduce));
+  const maybeRef = useRef(spotlightMaybeIds);
   const hoverRing = useRef(-1);
   const phase = useRef<number[]>([]);
   const slow = useRef<number[]>([]);
@@ -192,10 +211,17 @@ export function OrbitStage({ board, focusIds, selectedId, activeListId, bottomIn
   const focusBlend = useRef(new Map<string, number>());
   const born = useRef(new Map<string, number>());
   const introDone = useRef(false);
+  /* O layout muda quando o spotlight entra/sai: raios e ângulos são interpolados
+     no loop para os cards que ficam não saltarem de posição. */
+  const radii = useRef(new Map<string, { rx: number; ry: number }>());
+  const angles = useRef(new Map<string, number>());
+  const ringEls = useRef(new Map<string, SVGEllipseElement>());
+  const labelEls = useRef(new Map<string, HTMLButtonElement>());
 
   geoRef.current = geo;
   slotsRef.current = slots;
   focusRef.current = focusIds;
+  maybeRef.current = spotlightMaybeIds;
   selectedRef.current = selectedId;
   activeListRef.current = activeListId;
   reduceRef.current = Boolean(reduce);
@@ -216,16 +242,42 @@ export function OrbitStage({ board, focusIds, selectedId, activeListId, bottomIn
     let raf = 0;
     let last = performance.now();
 
+    /** Delta angular pelo caminho mais curto (evita girar 340° quando o layout muda). */
+    const shortest = (from: number, to: number) => from + ((((to - from) % 360) + 540) % 360) - 180;
+
     const tick = (now: number) => {
       const dt = Math.min(0.06, (now - last) / 1000);
       last = now;
       const g = geoRef.current;
       if (g && g.rings.length) {
         const rings = g.rings;
+        const morph = 1 - Math.exp(-dt * 6);
         rings.forEach((ring, i) => {
           const calm = hoverRing.current === i || activeListRef.current === ring.listId;
           slow.current[i] = (slow.current[i] ?? 1) + ((calm ? 0.04 : 1) - (slow.current[i] ?? 1)) * (1 - Math.exp(-dt * 6));
           phase.current[i] = (phase.current[i] ?? 0) + (reduceRef.current ? 0 : ring.dir * (360 / ring.duration) * dt * slow.current[i]);
+
+          // Raios: nascem no alvo e depois perseguem-no (anel e rótulo acompanham).
+          const current = radii.current.get(ring.listId);
+          if (current) {
+            current.rx += (ring.rx - current.rx) * morph;
+            current.ry += (ring.ry - current.ry) * morph;
+          } else {
+            radii.current.set(ring.listId, { rx: ring.rx, ry: ring.ry });
+          }
+          const r = radii.current.get(ring.listId);
+          if (!r) return;
+          const ellipse = ringEls.current.get(ring.listId);
+          if (ellipse) {
+            ellipse.setAttribute("rx", r.rx.toFixed(1));
+            ellipse.setAttribute("ry", r.ry.toFixed(1));
+          }
+          const label = labelEls.current.get(ring.listId);
+          if (label) {
+            const la = (ring.labelAngle * Math.PI) / 180;
+            label.style.left = `${(g.cx + r.rx * Math.cos(la)).toFixed(1)}px`;
+            label.style.top = `${(g.cy + r.ry * Math.sin(la)).toFixed(1)}px`;
+          }
         });
 
         const focus = focusRef.current;
@@ -243,18 +295,30 @@ export function OrbitStage({ board, focusIds, selectedId, activeListId, bottomIn
           if (!el) continue;
           const ring = rings[slot.ring];
           if (!ring) continue;
+          const r = radii.current.get(ring.listId) ?? ring;
 
-          const a = ((phase.current[slot.ring] ?? 0) + slot.angle0) * (Math.PI / 180);
-          let x = g.cx + ring.rx * Math.cos(a);
-          let y = g.cy + ring.ry * Math.sin(a);
+          // Ângulo suavizado: quando o spotlight redistribui os cards do anel, eles
+          // deslizam até a posição nova em vez de aparecerem com um salto.
+          const previous = angles.current.get(slot.id);
+          const angle = previous === undefined ? slot.angle0 : previous + (shortest(previous, slot.angle0) - previous) * (1 - Math.exp(-dt * 7));
+          angles.current.set(slot.id, angle);
+
+          const a = ((phase.current[slot.ring] ?? 0) + angle) * (Math.PI / 180);
+          let x = g.cx + r.rx * Math.cos(a);
+          let y = g.cy + r.ry * Math.sin(a);
           const depth = (Math.sin(a) + 1) / 2; // 0 = fundo, 1 = frente
           let scale = 0.8 + 0.26 * depth;
           let opacity = 0.62 + 0.38 * depth;
+          // «talvez»: visível, mas discreto (a política é recall-first: nunca esconder).
+          if (maybeRef.current.has(slot.id)) opacity *= 0.68;
           let z = Math.round(depth * 100);
 
-          const focused = focus.has(slot.id);
+          const inFocus = focus.has(slot.id);
+          // Só os ≤3 primeiros vêm para a frente do planeta; os demais listados
+          // continuam no anel (em foco, mas sem disputar a mesma vaga da fila).
+          const pulled = focusIds.includes(slot.id);
           const k0 = focusBlend.current.get(slot.id) ?? 0;
-          const k = k0 + ((focused ? 1 : 0) - k0) * (1 - Math.exp(-dt * 7));
+          const k = k0 + ((pulled ? 1 : 0) - k0) * (1 - Math.exp(-dt * 7));
           focusBlend.current.set(slot.id, k);
 
           if (k > 0.002) {
@@ -267,8 +331,8 @@ export function OrbitStage({ board, focusIds, selectedId, activeListId, bottomIn
             opacity = lerp(opacity, 1, e);
             z = Math.round(lerp(z, 220, e));
           } else if (dim.current > 0.01) {
-            const inActive = activeListRef.current === ring.listId;
-            if (!inActive) opacity *= 1 - 0.62 * dim.current;
+            const lit = activeListRef.current === ring.listId || inFocus;
+            if (!lit) opacity *= 1 - 0.62 * dim.current;
             else {
               opacity = lerp(opacity, 1, dim.current);
               scale *= 1 + 0.08 * dim.current;
@@ -332,6 +396,10 @@ export function OrbitStage({ board, focusIds, selectedId, activeListId, bottomIn
                 return (
                   <ellipse
                     key={ring.listId}
+                    ref={(el) => {
+                      if (el) ringEls.current.set(ring.listId, el);
+                      else ringEls.current.delete(ring.listId);
+                    }}
                     cx={geo.cx}
                     cy={geo.cy}
                     rx={ring.rx}
@@ -355,6 +423,10 @@ export function OrbitStage({ board, focusIds, selectedId, activeListId, bottomIn
               <button
                 key={ring.listId}
                 type="button"
+                ref={(el) => {
+                  if (el) labelEls.current.set(ring.listId, el);
+                  else labelEls.current.delete(ring.listId);
+                }}
                 onClick={() => onSelectList(ring.listId)}
                 className={`absolute z-[8] -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full px-2 py-0.5 font-mono text-[9.5px] uppercase tracking-wider transition-colors ${
                   active ? "bg-primary text-primary-foreground" : "bg-background/55 text-muted-foreground/80 hover:text-foreground"
@@ -404,6 +476,7 @@ export function OrbitStage({ board, focusIds, selectedId, activeListId, bottomIn
                   width={geo.cardW}
                   compact={geo.compact}
                   focused={focusIds.has(card.id)}
+                  maybe={spotlightMaybeIds.has(card.id)}
                   selected={selectedId === card.id}
                   register={register}
                   onSelect={onSelectCard}

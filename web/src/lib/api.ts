@@ -34,9 +34,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-export type AgentEvent =
-  | { type: "jev"; jev: JevTrace }
-  | { type: "mimo"; status: "started"; model: string; reason: string | null };
+/** Evento do SSE antes do plano. Num comando composto o JEV nem é consultado (`jev: null`). */
+export type AgentEvent = { type: "jev"; jev: JevTrace | null };
 
 export interface ConfirmResult {
   decision: "yes" | "no" | "unclear";
@@ -63,8 +62,12 @@ export const api = {
   },
 
   /**
-   * Texto → plano. Usa SSE: `onEvent` recebe o veredito do JEV (~0,5 s) e o
-   * aviso de que o MiMo assumiu, enquanto o plano final ainda não chegou.
+   * Texto → plano. Usa SSE: `onEvent` recebe o veredito do JEV (intenção,
+   * colunas e guardas) enquanto a cascata de cards e o plano final ainda não
+   * chegaram. Não há reserva genérica: se o JEV se abstém, o plano vem com
+   * `actions: []`, `band: "abstain"` e `warning`. Comando com várias ações
+   * segue por outro caminho — o plano chega com `provider: "llm"` e
+   * `trace.llm` (System Two), e o JEV pode nem ter sido consultado.
    */
   agent: async (
     transcript: string,

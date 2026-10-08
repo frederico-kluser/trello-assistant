@@ -1,14 +1,19 @@
 /**
- * MiMo 2.6 Pro (OpenRouter) — o "System Two" do app: raciocina sobre o board
- * quando o JEV se abstém (ou está indisponível). Só é chamado como RESERVA.
+ * System Two — LLM (OpenRouter, padrão google/gemini-3.8-flash).
+ *
+ * Planeja os COMANDOS COMPOSTOS: quando a fala traz várias ações ("move A para
+ * terminado, move B para terminado e move C para fazendo"), o comando INTEIRO
+ * vai para este serviço, que devolve o plano completo — o JEV (System One)
+ * continua a resolver os comandos únicos. Não é "reserva para quando o JEV se
+ * abstém": abstenções por clareza/card continuam a pedir esclarecimento.
+ * Futuro: gerar texto (nome/descrição/"motivações") nos fluxos de criar/editar.
+ *
  * Contrato: a fala + snapshot do board entram; sai um plano JSON
- *   { speech, needsConfirmation, actions[] }
- * Em falha lança MimoError — quem decide o próximo degrau (interpretador
- * local) é o orquestrador em planner.js.
+ * { speech, needsConfirmation, actions[] }. Em falha lança MimoError.
  */
 import { performance } from "node:perf_hooks";
 import { config } from "../config.js";
-import { request } from "../lib/http.js";
+import { HttpError, request } from "../lib/http.js";
 import { describeAction, normalizeActions, requiresConfirmation } from "../domain/actions.js";
 
 export class MimoError extends Error {
@@ -43,8 +48,14 @@ REGRAS
    {"type":"create_list","name":"..."}
    {"type":"add_checklist_item","card":"...","checklist":"...","text":"..."}
 4. Referencie cards e listas pelos NOMES que aparecem no board (nome parcial serve).
+   A fala vem de RECONHECIMENTO DE VOZ e os nomes chegam BORRADOS: pese a PRONÚNCIA
+   e o contexto do pedido, não só a grafia. Ex.: "Ondocay" é "Ondokai"; "Leia" é
+   "Laya"; "a atividade da academia" é o card do ginásio. Escolha o item do board
+   que SOA como o que foi dito e faz sentido no pedido.
 5. Datas: converta "amanhã", "sexta", "dia 20", "20/08" em ISO-8601 (AAAA-MM-DD). Sem ano, use o ano atual. Hoje é {{TODAY}}..
-6. Várias ações numa mesma fala devem ser devolvidas TODAS, na ordem pedida.
+6. Devolva TODAS as ações pedidas, na ORDEM em que foram ditas — inclusive 3 ou
+   mais numa só fala. Não resuma, não junte duas ações numa e não descarte
+   nenhuma: a quantidade de ações da sua resposta tem de bater com a do pedido.
 7. Pedidos de informação ("o que tenho?", "quais cards?") NÃO são ações: devolva "actions": [] e responda no "speech" usando o board.
 8. NUNCA invente lista ou card que não existe no board. Se estiver ambíguo, devolva "actions": [] e peça esclarecimento no "speech".
 9. "needsConfirmation" é true SOMENTE para create_card / delete_card ou quando há ambiguidade. Ações de mover/editar/prazo/comentar são diretas.
@@ -111,6 +122,16 @@ export function parsePlan(content, { transcript, board }) {
 }
 
 /**
+ * O 400/422 fala de `reasoning`? Nem todo modelo aceita `reasoning: { effort }`
+ * e o OpenRouter recusa o corpo inteiro — nesse caso vale repetir sem o campo.
+ */
+function rejectsReasoning(err) {
+  if (!(err instanceof HttpError) || (err.status !== 400 && err.status !== 422)) return false;
+  const detail = typeof err.detail === "string" ? err.detail : JSON.stringify(err.detail ?? "");
+  return /reasoning/i.test(detail) || /reasoning/i.test(err.message);
+}
+
+/**
  * @returns {Promise<{plan:{speech:string,actions:object[],needsConfirmation:boolean}, model:string, latencyMs:number}>}
  * @throws {MimoError}
  */
@@ -120,38 +141,50 @@ export async function planWithMimo({ transcript, board, context = {} }) {
   const last = context.lastCardId ? board.cards?.find((card) => card.id === context.lastCardId) : null;
   const started = performance.now();
 
-  let data;
-  try {
-    ({ data } = await request(`${config.openrouter.baseUrl}/chat/completions`, {
+  const messages = [
+    { role: "system", content: SYSTEM_PROMPT.replace("{{TODAY}}", TODAY()) },
+    {
+      role: "user",
+      content: `${boardDigest(board)}${last ? `\n\nÚLTIMO CARD CITADO (use para "ele/ela/esse card"): "${last.name}"` : ""}\n\nO QUE A PESSOA FALOU:\n${text}`,
+    },
+  ];
+  // `reasoning` é opcional: o modelo pode não o suportar (ver `rejectsReasoning`).
+  const body = (reasoning) => ({
+    model: config.openrouter.model,
+    messages,
+    temperature: 0.2,
+    max_tokens: config.openrouter.maxTokens,
+    response_format: { type: "json_object" },
+    // Esforço de raciocínio no máximo (padrão): o modelo pensa o máximo antes de
+    // responder. Os reasoning tokens entram no orçamento de max_tokens e são
+    // cobrados como output.
+    ...(reasoning ? { reasoning: { effort: config.openrouter.reasoningEffort } } : {}),
+  });
+  const send = (reasoning) =>
+    request(`${config.openrouter.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${config.openrouter.apiKey}`,
         "http-referer": config.app.url,
         "x-openrouter-title": config.app.name,
       },
-      json: {
-        model: config.openrouter.model,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT.replace("{{TODAY}}", TODAY()) },
-          {
-            role: "user",
-            content: `${boardDigest(board)}${last ? `\n\nÚLTIMO CARD CITADO (use para "ele/ela/esse card"): "${last.name}"` : ""}\n\nO QUE A PESSOA FALOU:\n${text}`,
-          },
-        ],
-        temperature: 0.2,
-        max_tokens: config.openrouter.maxTokens,
-        response_format: { type: "json_object" },
-        // Esforço de raciocínio no máximo (padrão): o modelo pensa o máximo
-        // antes de responder. Os reasoning tokens entram no orçamento de
-        // max_tokens e são cobrados como output.
-        reasoning: { effort: config.openrouter.reasoningEffort },
-      },
+      json: body(reasoning),
       // Pensar fundo custa latência: damos folga antes de degradar.
       timeoutMs: 120_000,
       retries: 1,
-    }));
+    });
+
+  let data;
+  try {
+    ({ data } = await send(true));
   } catch (err) {
-    throw new MimoError("request_failed", `o OpenRouter não respondeu (${err.message})`);
+    if (!rejectsReasoning(err)) throw new MimoError("request_failed", `o OpenRouter não respondeu (${err.message})`);
+    // O modelo recusou o campo `reasoning`: repetimos UMA vez sem ele.
+    try {
+      ({ data } = await send(false));
+    } catch (retryErr) {
+      throw new MimoError("request_failed", `o OpenRouter não respondeu (${retryErr.message})`);
+    }
   }
 
   const plan = parsePlan(data?.choices?.[0]?.message?.content ?? "", { transcript: text, board });

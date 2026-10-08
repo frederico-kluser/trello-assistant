@@ -293,6 +293,7 @@ export class DemoBoard {
       { id: "c-3", idList: "l-todo", name: "Revisar proposta do cliente", desc: "Conferir valores e prazos.", due: iso(3), labels: ["lb-trabalho"] },
       { id: "c-4", idList: "l-todo", name: "Comprar cabo HDMI", desc: "", due: iso(1), labels: ["lb-casa"] },
       { id: "c-5", idList: "l-todo", name: "Ligar para o contador", desc: "", due: iso(2), labels: ["lb-trabalho"] },
+      { id: "c-9", idList: "l-todo", name: "Pagar conta de luz", desc: "Venceu na segunda.", due: iso(-2), labels: ["lb-casa"] },
       { id: "c-6", idList: "l-doing", name: "Montar o board de voz", desc: "STT + MiMo + Trello.", due: iso(0), labels: ["lb-urgente", "lb-trabalho"] },
       { id: "c-7", idList: "l-doing", name: "Escrever o README", desc: "", due: null, labels: [] },
       { id: "c-8", idList: "l-done", name: "Criar o repositório", desc: "", due: iso(-1), dueComplete: true, labels: [] },

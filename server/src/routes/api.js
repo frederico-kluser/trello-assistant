@@ -115,6 +115,7 @@ apiRouter.post("/agent", async (req, res) => {
       model: plan.model ?? null,
       band: plan.band ?? null,
       warning: plan.warning ?? null,
+      listing: plan.listing ?? [],
       trace: plan.trace,
     };
     if (stream) {

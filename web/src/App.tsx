@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { WifiOff } from "lucide-react";
+import { ListFilter, WifiOff } from "lucide-react";
 import { MotionUIThemeProvider } from "@/components/motion-ui/ui-theme";
 import { Confetti, type ConfettiHandle } from "@/components/motion-ui/confetti";
 import { Toast, ToastStack, useToastStack } from "@/components/motion-ui/toast-stack";
 import motionTheme from "../motion.theme";
 import { ApiError, api } from "@/lib/api";
 import { cancelSpeech, createLiveCaptions, isMuted, setMuted, speak, type LiveCaptions } from "@/lib/speech";
+import { llmSummary } from "@/lib/plan";
 import { useVoiceCapture, type AutoStopReason } from "@/hooks/useVoiceCapture";
-import type { Board, FeedItem, JevTrace, Phase, PipelineStep, Plan, PlanTrace, PlannedAction, StatusPayload, TCard, ToastData } from "@/lib/types";
+import type { Board, FeedItem, JevTrace, Phase, PipelineStep, Plan, PlannedAction, StatusPayload, TCard, ToastData } from "@/lib/types";
 import { OrbitStage, type PulseSignal } from "@/components/OrbitStage";
 import { Planet } from "@/components/Planet";
 import { CommandDock, type Caption } from "@/components/CommandDock";
@@ -45,14 +46,39 @@ function resolveCardIds(actions: PlannedAction[], board: Board): Set<string> {
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 
-/** Resumo de uma linha do que o JEV decidiu (para a legenda e o histórico). */
-function jevSummary(jev: JevTrace): string {
-  if (jev.status === "unavailable") return `JEV indisponível: ${jev.reason ?? "sem resposta"}. Chamando o MiMo 2.6 Pro.`;
-  if (jev.status === "abstain") return `JEV: ${jev.reason ?? "não consigo operar"}. Chamando o MiMo 2.6 Pro.`;
+/** Corta um texto longo sem cortar no meio de uma palavra (rótulo do destaque). */
+const shortLabel = (text: string, max: number) => (text.length <= max ? text : `${text.slice(0, max).replace(/\s+\S*$/, "")}…`);
+
+/**
+ * Modo destaque de listagem: quando o plano é uma listagem, só os cards listados
+ * ficam na órbita (as demais listas/cards somem) até o utilizador limpar.
+ * Ao contrário do `focusIds`, NÃO expira sozinho.
+ */
+interface Spotlight {
+  ids: Set<string>;
+  /** Subconjunto «talvez»: continuam visíveis, mas discretos. */
+  maybeIds: Set<string>;
+  count: number;
+  maybeCount: number;
+  /** O comando que gerou a listagem (aparece no chip flutuante). */
+  command: string;
+}
+
+/**
+ * Resumo de uma linha do que o JEV decidiu (para a legenda e o histórico).
+ * Devolve null quando não houve veredito do JEV — num comando com várias ações
+ * ele nem é consultado, e o resumo vem do System Two (`llmSummary`).
+ */
+function jevSummary(jev: JevTrace | null): string | null {
+  if (!jev) return null;
+  if (jev.status === "unavailable") return `JEV indisponível: ${jev.reason ?? "sem resposta"}. Sem plano — vou pedir para reformular.`;
+  if (jev.status === "abstain") return `JEV: ${jev.reason ?? "não consigo operar"}. Sem plano — vou pedir para reformular.`;
   const used = (jev.clauses[0]?.decisions ?? []).filter((decision) => decision.used && decision.type === "choice");
   const parts = used.map((decision) => tidyName(String(decision.display)));
+  const listing = jev.listing ? ` · ${jev.listing.listed} de ${jev.listing.evaluated} cards listados` : "";
+  if (!parts.length) return jev.listing ? `JEV filtrou a listagem${listing}.` : "O JEV decidiu.";
   const min = Math.min(...used.map((decision) => decision.confidence), 1);
-  return `JEV decidiu: ${parts.join(" · ")} (${pct(min)}).`;
+  return `JEV decidiu: ${parts.join(" · ")} (${pct(min)})${listing}.`;
 }
 
 type Tab = "decisoes" | "historico" | "card" | "listas";
@@ -60,7 +86,6 @@ type Tab = "decisoes" | "historico" | "card" | "listas";
 const STEPS_IDLE: PipelineStep[] = [
   { key: "stt", state: "idle" },
   { key: "jev", state: "idle" },
-  { key: "mimo", state: "idle", note: "só se o JEV se abstiver" },
   { key: "trello", state: "idle" },
 ];
 
@@ -86,13 +111,13 @@ export default function App() {
   const [hearing, setHearing] = useState(false);
   const [steps, setSteps] = useState<PipelineStep[]>(STEPS_IDLE);
   const [jevLive, setJevLive] = useState<JevTrace | null>(null);
-  const [trace, setTrace] = useState<PlanTrace | null>(null);
-  const [mimoActive, setMimoActive] = useState(false);
-  const [engines, setEngines] = useState<{ stt: EngineState; jev: EngineState; mimo: EngineState }>({ stt: "idle", jev: "idle", mimo: "idle" });
+  const [lastPlan, setLastPlan] = useState<Plan | null>(null);
+  const [engines, setEngines] = useState<{ stt: EngineState; jev: EngineState }>({ stt: "idle", jev: "idle" });
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [activeListId, setActiveListId] = useState<string | null>(null);
   const [focusIds, setFocusIds] = useState<Set<string>>(() => new Set());
+  const [spotlight, setSpotlight] = useState<Spotlight | null>(null);
   const [pulse, setPulse] = useState<PulseSignal | null>(null);
   const [tab, setTab] = useState<Tab>("decisoes");
   const [muted, setMutedState] = useState(isMuted);
@@ -144,7 +169,7 @@ export default function App() {
     setSteps((prev) => prev.map((step) => (step.key === key ? { ...step, ...patch } : step)));
   }, []);
 
-  const setEngine = useCallback((key: "stt" | "jev" | "mimo", state: EngineState) => {
+  const setEngine = useCallback((key: "stt" | "jev", state: EngineState) => {
     setEngines((prev) => ({ ...prev, [key]: state }));
   }, []);
 
@@ -205,6 +230,12 @@ export default function App() {
     }, 25_000);
     return () => window.clearInterval(id);
   }, [loadBoard]);
+
+  // Trocar de board desfaz o destaque de listagem (a listagem era do board anterior).
+  const boardId = board?.id ?? null;
+  useEffect(() => {
+    setSpotlight(null);
+  }, [boardId]);
 
   /* ── execução ─────────────────────────────────────────────── */
 
@@ -301,10 +332,9 @@ export default function App() {
       transcriptRef.current = "";
       setTranscript(null);
       setJevLive(null);
-      setTrace(null);
-      setMimoActive(false);
+      setLastPlan(null);
       setSteps(STEPS_IDLE);
-      setEngines({ stt: "idle", jev: "idle", mimo: "idle" });
+      setEngines({ stt: "idle", jev: "idle" });
       setPhase("listening");
       setCaption({ kind: "listening", text: "" });
       setTab("decisoes");
@@ -324,56 +354,83 @@ export default function App() {
       setPendingPlan(null);
       setHearing(false);
       setJevLive(null);
-      setTrace(null);
-      setMimoActive(false);
+      setLastPlan(null);
       setFocusIds(new Set());
+      // Comando novo começa do zero: a listagem anterior sai de destaque.
+      setSpotlight(null);
       setTab("decisoes");
       setSteps((prev) => [
         source === "texto" ? { key: "stt", state: "skipped", note: "texto digitado" } : prev[0],
         { key: "jev", state: "active" },
-        { key: "mimo", state: "idle", note: "só se o JEV se abstiver" },
         { key: "trello", state: "idle" },
       ]);
       setEngine("jev", "active");
-      setEngine("mimo", "idle");
       pushFeed("you", text);
-      heard("JEV analisando…");
+      heard("Analisando o comando…");
 
       try {
         const plan = await api.agent(text, { lastCardId: lastCardRef.current }, (event) => {
-          if (event.type === "jev") {
-            setJevLive(event.jev);
-            const ok = event.jev.status === "ok";
-            patchStep("jev", { state: ok ? "done" : event.jev.status === "abstain" ? "warn" : "failed", ms: event.jev.latencyMs, note: ok ? undefined : event.jev.status === "abstain" ? "se absteve" : "indisponível" });
-            setEngine("jev", ok ? "ok" : event.jev.status === "abstain" ? "warn" : "down");
-            const summary = jevSummary(event.jev);
+          if (event.type !== "jev") return;
+          if (!event.jev) {
+            // Comando com várias ações: o JEV nem foi consultado — quem planeia é o System Two.
+            patchStep("jev", { state: "skipped", note: "System Two planeja" });
+            setEngine("jev", "idle");
+            return;
+          }
+          setJevLive(event.jev);
+          const ok = event.jev.status === "ok";
+          patchStep("jev", { state: ok ? "done" : event.jev.status === "abstain" ? "warn" : "failed", ms: event.jev.latencyMs, note: ok ? undefined : event.jev.status === "abstain" ? "se absteve" : "indisponível" });
+          setEngine("jev", ok ? "ok" : event.jev.status === "abstain" ? "warn" : "down");
+          const summary = jevSummary(event.jev);
+          if (summary) {
             pushFeed("jev", summary);
             heard(summary, ok ? "neutral" : "warn");
-          } else if (event.type === "mimo") {
-            setMimoActive(true);
-            patchStep("mimo", { state: "active", note: "raciocínio máximo" });
-            setEngine("mimo", "active");
-            pushFeed("mimo", "MiMo 2.6 Pro assumiu e está raciocinando.");
           }
         });
 
-        setTrace(plan.trace);
-        if (plan.trace.engine === "jev") patchStep("mimo", { state: "skipped", note: "não precisou" });
-        if (plan.trace.mimo?.status === "ok") {
-          patchStep("mimo", { state: "done", ms: plan.trace.mimo.latencyMs, note: undefined });
-          setEngine("mimo", "ok");
-        } else if (plan.trace.mimo?.status === "failed") {
-          patchStep("mimo", { state: "failed", note: "falhou" });
-          setEngine("mimo", "down");
-        }
+        setLastPlan(plan);
         if (plan.warning) pushFeed("info", plan.warning);
+
+        // System Two: o comando composto vem planeado inteiro pelo LLM (2..N ações).
+        // Se ele falhou, o fluxo seguiu pelo JEV — aí não mexo no que o SSE já marcou.
+        const llm = plan.trace?.llm ?? null;
+        if (llm?.status === "ok") {
+          patchStep("jev", { state: "done", ms: llm.latencyMs, note: llm.model ?? "comando composto" });
+          setEngine("jev", "idle"); // o JEV não participou deste comando
+        } else if (llm && !plan.trace?.jev) {
+          patchStep("jev", { state: "failed", ms: llm.latencyMs, note: "System Two indisponível" });
+          setEngine("jev", "idle");
+        } else if (!llm && plan.provider === "llm") {
+          // Plano composto sem trace do LLM: o passo não pode ficar a girar.
+          patchStep("jev", { state: "done", note: "System Two planeja" });
+          setEngine("jev", "idle");
+        }
+        const llmFeed = llmSummary(plan);
+        if (llmFeed) pushFeed(llm?.status === "ok" ? "jev" : "info", llmFeed);
 
         const current = boardRef.current;
         const ids = current ? resolveCardIds(plan.actions, current) : new Set<string>();
+        // Listagem não tem ações: o destaque vai para os cards que a cascata decidiu listar.
+        const listed = plan.listing ?? [];
+        for (const card of listed) ids.add(card.id);
         setFocusIds(ids);
+        // Listagem com resultados: só ela fica na órbita; listagem vazia não ativa o modo
+        // (a fala «Não encontrei nada…» já explica, e um palco vazio não ajudaria).
+        setSpotlight(
+          listed.length
+            ? {
+                ids: new Set(listed.map((card) => card.id)),
+                maybeIds: new Set(listed.filter((card) => card.maybe).map((card) => card.id)),
+                count: listed.length,
+                maybeCount: listed.filter((card) => card.maybe).length,
+                command: text.trim(),
+              }
+            : null,
+        );
         if (ids.size) {
           const first = [...ids][0];
           lastCardRef.current = first;
+          if (plan.actions.length === 0) window.setTimeout(() => setFocusIds(new Set()), 9000);
         }
 
         if (plan.actions.length === 0) {
@@ -568,6 +625,9 @@ export default function App() {
     setMutedState(isMuted());
   }, []);
 
+  /** «Mostrar todos»: desfaz o destaque de listagem e devolve a órbita inteira. */
+  const clearSpotlight = useCallback(() => setSpotlight(null), []);
+
   /* ── derivados ────────────────────────────────────────────── */
 
   const examples = useMemo(() => {
@@ -606,7 +666,6 @@ export default function App() {
           cardCount={cardCount}
           sttState={engines.stt}
           jevState={engines.jev}
-          mimoState={engines.mimo}
           syncedAt={syncedAt}
           refreshing={refreshing}
           muted={muted}
@@ -634,7 +693,18 @@ export default function App() {
           {/* palco: a órbita ocupa toda a área livre */}
           <main className="relative min-h-0 flex-1 max-lg:h-[68dvh] max-lg:min-h-[460px] max-lg:flex-none">
             {board ? (
-              <OrbitStage board={board} focusIds={focusIds} selectedId={selectedCardId} activeListId={activeListId} bottomInset={bottomInset} pulse={pulse} onSelectCard={onSelectCard} onSelectList={onSelectList}>
+              <OrbitStage
+                board={board}
+                focusIds={focusIds}
+                spotlightIds={spotlight?.ids ?? null}
+                spotlightMaybeIds={spotlight?.maybeIds}
+                selectedId={selectedCardId}
+                activeListId={activeListId}
+                bottomInset={bottomInset}
+                pulse={pulse}
+                onSelectCard={onSelectCard}
+                onSelectList={onSelectList}
+              >
                 {(planetSize) => (
                   <Planet phase={planetPhase} level={capture.level} size={planetSize} disabled={Boolean(bootError) || !capture.supported || phase === "transcribing" || phase === "thinking" || phase === "executing"} onToggle={togglePlanet} />
                 )}
@@ -647,6 +717,40 @@ export default function App() {
                 </div>
               </div>
             )}
+
+            {/* destaque de listagem: controlo discreto sobre o palco (as demais somem) */}
+            <AnimatePresence>
+              {spotlight && (
+                <motion.div
+                  key="spotlight"
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.2 }}
+                  title={`Só os ${spotlight.count} cards listados de «${spotlight.command}» estão na órbita${spotlight.maybeCount ? ` (${spotlight.maybeCount} com ressalva)` : ""}`}
+                  className="hud absolute left-3 top-3 z-[70] flex max-w-[calc(100%-1.5rem)] items-center gap-2 rounded-full py-1 pl-2.5 pr-1.5 text-[11.5px] text-muted-foreground max-lg:left-2 max-lg:top-2"
+                >
+                  <ListFilter className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                  <span aria-live="polite" className="truncate">
+                    <span className="tnum font-mono text-foreground">{spotlight.count}</span> {spotlight.count === 1 ? "card listado" : "cards listados"}
+                    {spotlight.maybeCount > 0 && (
+                      <>
+                        {" · "}
+                        <span className="tnum font-mono text-warning">{spotlight.maybeCount}</span> talvez
+                      </>
+                    )}
+                    {spotlight.command && <span className="ml-1.5 hidden text-muted-foreground/80 sm:inline">de «{shortLabel(spotlight.command, 44)}»</span>}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearSpotlight}
+                    className="shrink-0 rounded-full border border-border/80 bg-secondary/60 px-2.5 py-0.5 text-[11.5px] text-foreground transition-colors hover:border-primary/50 hover:bg-accent/60 active:translate-y-px"
+                  >
+                    Mostrar todos
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             <CommandDock
               phase={phase}
@@ -694,11 +798,10 @@ export default function App() {
                   {tab === "decisoes" && (
                     <DecisionPanel
                       steps={steps}
-                      models={status?.capabilities.models ?? { stt: "", jev: null, mimo: null }}
+                      models={status?.capabilities.models ?? { stt: "", jev: null }}
                       transcript={transcript}
                       jev={jevLive}
-                      trace={trace}
-                      mimoActive={mimoActive}
+                      plan={lastPlan}
                       suggestions={examples}
                       onPick={(text) => {
                         setDraft(text);
