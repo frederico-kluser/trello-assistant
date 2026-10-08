@@ -21,6 +21,7 @@ import {
   splitClauses,
 } from "../src/services/jev-planner.js";
 import { planCommand } from "../src/services/planner.js";
+import { sessionStore } from "../src/services/session-store.js";
 import { DemoBoard } from "../src/services/trello.js";
 
 const board = await new DemoBoard().getBoard();
@@ -33,6 +34,10 @@ config.jev.cardBatch = 16;
 config.jev.listInclude = 0.5;
 config.jev.listMaybe = 0.35;
 config.jev.colInclude = 0.35;
+// Modelo FIXO (caminho "pinned" do model-picker): sem descoberta em GET /models,
+// o corpo enviado ao /chat/completions é previsível e o stub de fetch só vê a
+// chamada do chat. A resolução dinâmica ("auto") é testada em orchestration.test.js.
+config.openrouter.model = "google/gemini-3.8-flash";
 
 /* ── helpers: respostas sintéticas no formato do JEV ─────────────────── */
 
@@ -641,6 +646,48 @@ test("planWithJev: listagem devolve plan.listing e trace.listing com a forma do 
   setJevTransport(null);
 });
 
+test("listagem do JEV também guarda a 'última pesquisa' da sessão (ids + consulta)", async () => {
+  const sessionId = "jev-listing-session";
+  sessionStore.clear(sessionId);
+  const savedKey = config.openrouter.apiKey;
+  const savedEnabled = config.jev.enabled;
+  config.openrouter.apiKey = "test-key";
+  config.jev.enabled = true;
+  setJevTransport(async (url, opts) => {
+    if (isPhase1(opts.body)) {
+      return reply(phase1({ intent: choice("listar_cards"), col_0: noul(0.9), col_1: noul(0.05), col_2: noul(0.05), col_3: noul(0.05) }))();
+    }
+    return reply({ c_0: noul(0.9), c_1: noul(0.4) })();
+  });
+  const originalBatch = config.jev.cardBatch;
+  config.jev.cardBatch = 4; // 9 cards > 2×4: a poda de colunas deixa só «Ideias»
+  const said = "procura o card dos anéis de júpiter";
+  try {
+    const r = await planCommand({ transcript: said, board, context: { sessionId } });
+    assert.equal(r.provider, "jev");
+    assert.ok(r.listing.length >= 1);
+
+    const stored = sessionStore.getLastSearch(sessionId);
+    assert.deepEqual(stored.ids, r.listing.map((item) => item.id));
+    // Guarda a TRACE da listagem — nunca o texto cru do comando.
+    assert.equal(stored.query.source, "jev-listing");
+    assert.ok(stored.query.listed >= 1);
+    assert.equal(JSON.stringify(stored.query).includes(said), false);
+    assert.equal(typeof stored.at, "number");
+
+    // Sem sessionId não há onde guardar — e nada quebra.
+    const semSessao = await planCommand({ transcript: said, board, context: {} });
+    assert.equal(semSessao.provider, "jev");
+    assert.equal(sessionStore.getLastSearch(null), null);
+  } finally {
+    config.jev.cardBatch = originalBatch;
+    config.openrouter.apiKey = savedKey;
+    config.jev.enabled = savedEnabled;
+    setJevTransport(null);
+    sessionStore.clear(sessionId);
+  }
+});
+
 test("planWithJev: duas cláusulas de listagem somam o trace e rotulam colunas/cards por cláusula", async () => {
   setJevTransport(async (url, opts) => {
     if (isPhase1(opts.body)) {
@@ -1070,15 +1117,18 @@ test("System Two: 400 citando 'reasoning' → repete UMA vez sem o campo", async
 
 /* ── configuração do modelo ──────────────────────────────────────────── */
 
-test("config: sem OPENROUTER_MODEL o default é google/gemini-3.8-flash", () => {
+test("config: sem OPENROUTER_MODEL o default é 'auto' (descoberta) com reserva google/gemini-3.8-flash", () => {
   // O .env da máquina pode fixar outro modelo: perguntamos ao config num processo
   // limpo, com a variável vazia (o dotenv não sobrepõe o que já está no ambiente).
+  // "auto" = o model-picker escolhe o melhor modelo em GET /models; a reserva é
+  // usada quando a descoberta falha (nunca lança).
   const configUrl = new URL("../src/config.js", import.meta.url).href;
-  const out = execFileSync(process.execPath, ["-e", `import(${JSON.stringify(configUrl)}).then(({ config }) => console.log(config.openrouter.model))`], {
-    env: { ...process.env, OPENROUTER_MODEL: "" },
-    encoding: "utf8",
-  });
-  assert.equal(out.trim(), "google/gemini-3.8-flash");
+  const out = execFileSync(
+    process.execPath,
+    ["-e", `import(${JSON.stringify(configUrl)}).then(({ config }) => console.log([config.openrouter.model, config.openrouter.modelFallback].join("|")))`],
+    { env: { ...process.env, OPENROUTER_MODEL: "", OPENROUTER_MODEL_FALLBACK: "" }, encoding: "utf8" },
+  );
+  assert.equal(out.trim(), "auto|google/gemini-3.8-flash");
 });
 
 /* ── capacidades (UI) ────────────────────────────────────────────────── */

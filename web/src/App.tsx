@@ -6,6 +6,7 @@ import { Confetti, type ConfettiHandle } from "@/components/motion-ui/confetti";
 import { Toast, ToastStack, useToastStack } from "@/components/motion-ui/toast-stack";
 import motionTheme from "../motion.theme";
 import { ApiError, api } from "@/lib/api";
+import { assistantSummary, createSession, type Session } from "@/lib/session";
 import { cancelSpeech, createLiveCaptions, isMuted, setMuted, speak, type LiveCaptions } from "@/lib/speech";
 import { llmSummary } from "@/lib/plan";
 import { useVoiceCapture, type AutoStopReason } from "@/hooks/useVoiceCapture";
@@ -124,6 +125,8 @@ export default function App() {
   const [syncedAt, setSyncedAt] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [draft, setDraft] = useState("");
+  /** Turnos concluídos nesta sessão (só para o chip: o histórico vive no ref abaixo). */
+  const [sessionTurns, setSessionTurns] = useState(0);
 
   const capture = useVoiceCapture();
   const viewport = useViewportWidth();
@@ -143,6 +146,14 @@ export default function App() {
   const modeRef = useRef<"command" | "confirm">("command");
   const pendingRef = useRef<Plan | null>(null);
   const finishRef = useRef<(mode: "command" | "confirm", reason?: AutoStopReason | "manual") => Promise<void>>(async () => undefined);
+  /**
+   * Sessão desta aba: `sessionId` (chave do estado no servidor) + histórico das
+   * trocas anteriores. Só em memória — um F5 chama `createSession()` outra vez e
+   * começa do zero; nada disto vai a localStorage/sessionStorage.
+   */
+  const sessionRef = useRef<Session | null>(null);
+  if (!sessionRef.current) sessionRef.current = createSession();
+  const session = sessionRef.current;
 
   phaseRef.current = phase;
   boardRef.current = board;
@@ -369,24 +380,34 @@ export default function App() {
       heard("Analisando o comando…");
 
       try {
-        const plan = await api.agent(text, { lastCardId: lastCardRef.current }, (event) => {
-          if (event.type !== "jev") return;
-          if (!event.jev) {
-            // Comando com várias ações: o JEV nem foi consultado — quem planeia é o System Two.
-            patchStep("jev", { state: "skipped", note: "System Two planeja" });
-            setEngine("jev", "idle");
-            return;
-          }
-          setJevLive(event.jev);
-          const ok = event.jev.status === "ok";
-          patchStep("jev", { state: ok ? "done" : event.jev.status === "abstain" ? "warn" : "failed", ms: event.jev.latencyMs, note: ok ? undefined : event.jev.status === "abstain" ? "se absteve" : "indisponível" });
-          setEngine("jev", ok ? "ok" : event.jev.status === "abstain" ? "warn" : "down");
-          const summary = jevSummary(event.jev);
-          if (summary) {
-            pushFeed("jev", summary);
-            heard(summary, ok ? "neutral" : "warn");
-          }
-        });
+        const plan = await api.agent(
+          text,
+          { lastCardId: lastCardRef.current },
+          (event) => {
+            if (event.type !== "jev") return;
+            if (!event.jev) {
+              // Comando com várias ações: o JEV nem foi consultado — quem planeia é o System Two.
+              patchStep("jev", { state: "skipped", note: "System Two planeja" });
+              setEngine("jev", "idle");
+              return;
+            }
+            setJevLive(event.jev);
+            const ok = event.jev.status === "ok";
+            patchStep("jev", { state: ok ? "done" : event.jev.status === "abstain" ? "warn" : "failed", ms: event.jev.latencyMs, note: ok ? undefined : event.jev.status === "abstain" ? "se absteve" : "indisponível" });
+            setEngine("jev", ok ? "ok" : event.jev.status === "abstain" ? "warn" : "down");
+            const summary = jevSummary(event.jev);
+            if (summary) {
+              pushFeed("jev", summary);
+              heard(summary, ok ? "neutral" : "warn");
+            }
+          },
+          // Sessão: id + histórico ANTERIOR — o comando atual viaja no `transcript`
+          // e só fecha o par (pergunta/resposta) depois que o plano chegou.
+          { sessionId: session.id, history: session.history.toArray() },
+        );
+
+        // Troca concluída: histórico (capado em 20×500) + contador real de turnos.
+        setSessionTurns(session.completeExchange(text, assistantSummary(plan.speech)));
 
         setLastPlan(plan);
         if (plan.warning) pushFeed("info", plan.warning);
@@ -462,6 +483,8 @@ export default function App() {
         await execute(plan);
       } catch (err) {
         const message = err instanceof ApiError ? err.message : "Não consegui entender o pedido.";
+        // Comando que falhou também fecha a troca: pergunta + nota curta de erro.
+        setSessionTurns(session.completeExchange(text, assistantSummary(null, message)));
         patchStep("jev", { state: "failed" });
         pushFeed("error", message);
         setCaption({ kind: "error", message, hint: err instanceof ApiError ? (err.hint ?? undefined) : undefined });
@@ -671,6 +694,7 @@ export default function App() {
           muted={muted}
           capture={capture}
           guide={status?.guide ?? "/docs/TRELLO-GUIA-COMPLETO.md"}
+          sessionTurns={sessionTurns}
           onRefresh={() => void loadBoard(true)}
           onToggleMute={toggleMute}
         />
@@ -802,6 +826,7 @@ export default function App() {
                       transcript={transcript}
                       jev={jevLive}
                       plan={lastPlan}
+                      sessionTurns={sessionTurns}
                       suggestions={examples}
                       onPick={(text) => {
                         setDraft(text);

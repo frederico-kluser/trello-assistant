@@ -10,6 +10,9 @@ import { request } from "../lib/http.js";
 import { AppError, SETUP_GUIDE } from "../lib/errors.js";
 
 const CARD_FIELDS = "name,desc,due,dueComplete,idList,pos,closed,url,idLabels,idChecklists,dateLastActivity";
+// Comentários: /boards/{id}/actions?filter=commentCard pagina de 1000 em 1000.
+const COMMENT_PAGE_LIMIT = 1000;
+const COMMENT_MAX_PAGES = 5;
 const norm = (value) =>
   String(value ?? "")
     .normalize("NFD")
@@ -37,6 +40,23 @@ export function normalizeCard(raw, labelIndex = {}) {
       items: (list.checkItems ?? []).map((item) => ({ id: item.id, name: item.name, state: item.state })),
     })),
     dateLastActivity: raw.dateLastActivity ?? null,
+  };
+}
+
+/**
+ * Ação `commentCard` do Trello → comentário normalizado.
+ * @returns {{cardId:string, cardName:string, text:string, at:string|null, actionId:string|null}|null}
+ */
+function normalizeComment(raw) {
+  const text = String(raw?.data?.text ?? "").trim();
+  const cardId = raw?.data?.card?.id ?? raw?.idCard ?? null;
+  if (!text || !cardId) return null;
+  return {
+    cardId,
+    cardName: raw?.data?.card?.name ?? "",
+    text,
+    at: raw?.date ?? null,
+    actionId: raw?.id ?? null,
   };
 }
 
@@ -151,6 +171,27 @@ export class TrelloApi {
     return normalizeBoard(raw, { demo: false, boardId: this.cfg.boardId });
   }
 
+  /**
+   * Comentários do board (GET /boards/{id}/actions?filter=commentCard).
+   * Pagina até uma página voltar incompleta — teto de 5 páginas (5k ações).
+   */
+  async getBoardComments() {
+    const boardId = this.resolvedBoardId ?? this.cfg.boardId;
+    const comments = [];
+    for (let page = 0; page < COMMENT_MAX_PAGES; page += 1) {
+      const actions = await this.call(`/boards/${encodeURIComponent(boardId)}/actions`, {
+        query: { filter: "commentCard", limit: COMMENT_PAGE_LIMIT, page, fields: "data,date,idCard" },
+      });
+      const rows = Array.isArray(actions) ? actions : [];
+      for (const action of rows) {
+        const comment = normalizeComment(action);
+        if (comment) comments.push(comment);
+      }
+      if (rows.length < COMMENT_PAGE_LIMIT) break;
+    }
+    return comments;
+  }
+
   async createCard({ name, desc = "", idList, due = null, pos = "bottom", labels = [] }) {
     const idLabels = await this.resolveLabelIds(labels);
     return normalizeCard(
@@ -213,6 +254,8 @@ export class TrelloApi {
       method: "POST",
       body: { text },
     });
+    // Escrita feita → comentários em cache (memo local + board-cache) ficam velhos.
+    invalidateAllCommentCaches();
   }
 
   async createList({ name }) {
@@ -303,6 +346,14 @@ export class DemoBoard {
       closed: false,
       dueComplete: card.dueComplete ?? false,
       url: "https://trello.com/b/demo/demo",
+      // Comentários semeados para o modo demo exercitar a busca por características
+      // (inclusive matches que só existem no comentário, não no nome/descrição).
+      comments:
+        {
+          "c-3": [{ id: "a-1", text: "Cliente pediu desconto no pagamento e quer revisar antes de sexta.", at: iso(-1) }],
+          "c-9": [{ id: "a-2", text: "Também preciso pagar o aluguel do escritório.", at: iso(-2) }],
+          "c-6": [{ id: "a-3", text: "Testar o microfone antes da demonstração.", at: iso(-1) }],
+        }[card.id] ?? [],
       checklists:
         card.id === "c-6"
           ? [{ id: "ck-1", name: "Entrega", items: [{ id: "ci-1", name: "Gravar voz", state: "complete" }, { id: "ci-2", name: "Confirmar ações", state: "incomplete" }] }]
@@ -398,7 +449,24 @@ export class DemoBoard {
   async addComment(id, text) {
     const card = this.state.cards.find((c) => c.id === id);
     if (!card) throw new AppError("unknown_reference", `Card «${id}» não existe no board demo.`, { status: 422 });
-    (card.comments ??= []).push({ text, at: new Date().toISOString() });
+    (card.comments ??= []).push({ id: this.nextId("a"), text, at: new Date().toISOString() });
+    invalidateAllCommentCaches();
+  }
+
+  async getBoardComments() {
+    const comments = [];
+    for (const card of this.state.cards) {
+      for (const comment of card.comments ?? []) {
+        comments.push({
+          cardId: card.id,
+          cardName: card.name,
+          text: comment.text,
+          at: comment.at ?? null,
+          actionId: comment.id ?? null,
+        });
+      }
+    }
+    return comments;
   }
 
   async createList({ name }) {
@@ -424,12 +492,90 @@ export class DemoBoard {
 
 let backend = null;
 
+/**
+ * Callbacks chamados depois de CADA comentário gravado OU de troca de backend
+ * (board-cache registra o seu `invalidateComments`). O registro mora aqui, e não
+ * em board-cache, porque board-cache JÁ importa trello.js — o inverso fecharia
+ * um ciclo de importação.
+ */
+const commentsInvalidators = new Set();
+
 /** Backend ativo: Trello real quando há credenciais; senão, demo. */
 export function getBackend() {
   if (backend) return backend;
   const hasTrello = Boolean(config.trello.apiKey && config.trello.token && config.trello.boardId);
   backend = hasTrello ? new TrelloApi() : new DemoBoard();
   return backend;
+}
+
+/**
+ * SEAM de testes/demo: fixa o backend ativo (`setBackend(new DemoBoard())`), de
+ * modo que os testes não dependam de qual .env está presente nem toquem a API
+ * real do Trello. `setBackend(null)` volta à escolha automática.
+ * Trocar de backend invalida os comentários em cache — sem isso o cache de 60 s
+ * do board-cache (e o memo local) serviriam a lista do backend ANTERIOR.
+ */
+export function setBackend(next) {
+  backend = next ?? null;
+  invalidateAllCommentCaches();
+  return backend;
+}
+
+/** Registra um invalidador de comentários; devolve a função para desregistrar. */
+export function registerCommentsInvalidator(fn) {
+  if (typeof fn !== "function") return () => {};
+  commentsInvalidators.add(fn);
+  return () => commentsInvalidators.delete(fn);
+}
+
+/** Comentários do board ativo em cache: memo curto só para deduplicar rajadas. */
+const COMMENTS_MEMO_MS = 10_000;
+let commentsMemo = { data: null, at: 0, inflight: null, gen: 0 };
+
+/** Derruba o memo local de comentários (bump de geração = descarta leitura em voo). */
+export function clearCommentsCache() {
+  commentsMemo = { data: null, at: 0, inflight: null, gen: commentsMemo.gen + 1 };
+}
+
+/**
+ * Derruba TODOS os caches de comentários: o memo local + os invalidadores
+ * registrados (board-cache). Usado após gravar comentário e ao trocar de backend.
+ */
+function invalidateAllCommentCaches() {
+  clearCommentsCache();
+  for (const invalidate of commentsInvalidators) {
+    try {
+      invalidate();
+    } catch {
+      // invalidação é higiene de cache: nunca derruba a operação que já deu certo
+    }
+  }
+}
+
+/**
+ * Comentários do board ativo, normalizados: `[{ cardId, cardName, text, at, actionId }]`.
+ * O cache "de verdade" (60 s) vive em board-cache.getCommentsCached(); o memo
+ * local (10 s) só evita repetir as ~1–5 chamadas REST de uma rajada de buscas.
+ * `force: true` ignora o memo local (e não o cache do board-cache).
+ */
+export async function getBoardComments({ force = false } = {}) {
+  if (force) clearCommentsCache();
+  if (commentsMemo.data && Date.now() - commentsMemo.at <= COMMENTS_MEMO_MS) return commentsMemo.data;
+  if (commentsMemo.inflight) return commentsMemo.inflight;
+  const gen = commentsMemo.gen;
+  commentsMemo.inflight = Promise.resolve(getBackend().getBoardComments())
+    .then((comments) => {
+      // uma escrita durante a leitura não pode repovoar o cache com dado velho
+      if (gen === commentsMemo.gen) {
+        commentsMemo.data = comments;
+        commentsMemo.at = Date.now();
+      }
+      return comments;
+    })
+    .finally(() => {
+      if (gen === commentsMemo.gen) commentsMemo.inflight = null;
+    });
+  return commentsMemo.inflight;
 }
 
 export function backendKind() {

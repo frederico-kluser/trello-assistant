@@ -1,7 +1,9 @@
 import { motion } from "motion/react";
-import { AlertTriangle, Check, CircleDashed, Loader2, Minus, X } from "lucide-react";
-import type { Band, Decision, JevTrace, LlmTrace, PipelineStep, Plan } from "@/lib/types";
+import type { ReactNode } from "react";
+import { AlertTriangle, Check, CircleDashed, Loader2, Minus, Search, X } from "lucide-react";
+import type { Band, Decision, JevTrace, ListingItem, LlmTrace, PipelineStep, Plan, PlanSearch } from "@/lib/types";
 import { llmActionCount, llmFailureNote, llmLabel } from "@/lib/plan";
+import { matchedFieldLabels, searchCount, searchSummary, searchTitle, turnLabel } from "@/lib/session";
 
 export const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10_000 ? 0 : 1)} s` : `${Math.round(ms)} ms`);
 
@@ -95,6 +97,9 @@ function ListingBlock({ jev, plan }: { jev: JevTrace; plan: Plan | null }) {
   const listing = jev.listing;
   if (!listing) return null;
   const cards = plan?.listing ?? [];
+  // Numa busca por característica os cards são renderizados pelo `SearchBlock`,
+  // com os campos que casaram — aqui ficam só as contagens da cascata.
+  const searchActive = Boolean(plan?.search);
   const columns = listing.kept.length + listing.pruned.length;
   const batches = `${listing.batches} ${listing.batches === 1 ? "lote" : "lotes"}`;
 
@@ -136,7 +141,7 @@ function ListingBlock({ jev, plan }: { jev: JevTrace; plan: Plan | null }) {
 
       {listing.fallbackColumns && <p className="mt-1 text-[12px] text-muted-foreground">Portão de colunas aprovou tudo — filtro fino por card.</p>}
 
-      {cards.length > 0 && (
+      {cards.length > 0 && !searchActive && (
         <ul className="mt-2 flex flex-wrap gap-1.5">
           {cards.slice(0, MAX_LISTED_NAMES).map((card) => (
             <li key={card.id} title={card.list} className="inline-flex items-baseline gap-1.5 rounded-md border border-border/70 bg-card/40 px-2 py-0.5 text-[12px] text-foreground/90">
@@ -151,18 +156,99 @@ function ListingBlock({ jev, plan }: { jev: JevTrace; plan: Plan | null }) {
   );
 }
 
+/** Chip discreto no vocabulário dos chips da órbita: borda, fundo do card, dado em mono. */
+function Chip({ children, title }: { children: ReactNode; title?: string }) {
+  return (
+    <span title={title} className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-card/50 px-2 py-0.5 text-[10.5px] text-muted-foreground">
+      {children}
+    </span>
+  );
+}
+
+/** Sessão desta aba: quantos turnos e, depois de uma busca, quantas atividades ela achou. */
+function SessionChips({ turns, search, items }: { turns: number; search: PlanSearch | null; items: ListingItem[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" aria-label="Sessão">
+      <Chip title="A conversa vive só nesta aba: recarregar a página começa uma sessão nova.">
+        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">sessão</span>
+        <span className="tnum">{turnLabel(turns)}</span>
+      </Chip>
+      {search && <Chip title="Resultados da última busca por característica.">{searchSummary(search, items)}</Chip>}
+    </div>
+  );
+}
+
+/**
+ * Resultados de uma busca por característica, no mesmo bloco de listagem do
+ * painel. Todos os campos novos são opcionais: sem `matchedFields`, `descSnippet`
+ * ou `listName` o item ainda aparece — só com o nome.
+ */
+function SearchBlock({ search, items }: { search: PlanSearch; items: ListingItem[] }) {
+  const total = searchCount(search, items);
+
+  return (
+    <section aria-label="Resultados da busca">
+      <div className="mb-2.5 flex items-baseline justify-between gap-3">
+        <h3 className="eyebrow">Resultados da busca</h3>
+        <span className="tnum shrink-0 font-mono text-[10px] text-muted-foreground">{total}</span>
+      </div>
+
+      <p className="mb-2.5 flex items-center gap-1.5 text-pretty text-[12.5px] text-muted-foreground">
+        <Search className="h-3 w-3 shrink-0 text-primary" aria-hidden="true" />
+        {searchTitle(search, items)}
+      </p>
+
+      {items.length === 0 ? (
+        <p className="text-[13px] text-muted-foreground">
+          {total > 0 ? "A busca achou resultados, mas os detalhes não vieram neste evento." : "Não achei nenhuma atividade com essa característica."}
+        </p>
+      ) : (
+        <ul className="space-y-2">
+          {items.map((item, index) => {
+            const chips = matchedFieldLabels(item.matchedFields);
+            const listName = item.listName ?? item.list;
+            return (
+              <li
+                key={item.id || `${item.name}-${index}`}
+                title={typeof item.score === "number" ? `Relevância ${item.score.toFixed(2)}` : undefined}
+                className="rounded-lg border border-border/80 bg-card/40 px-3 py-2"
+              >
+                <p className="text-pretty text-[13px] font-medium leading-snug text-foreground">{item.name}</p>
+                {item.descSnippet && <p className="mt-1 line-clamp-2 text-pretty text-[12px] leading-snug text-muted-foreground">{item.descSnippet}</p>}
+                {(listName || item.maybe || chips.length > 0) && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {listName && <Chip title="Lista do card">{listName}</Chip>}
+                    {item.maybe && <Chip title="Casaram com ressalva">talvez</Chip>}
+                    {chips.map((chip) => (
+                      <Chip key={chip} title="Onde a busca casou">
+                        {chip}
+                      </Chip>
+                    ))}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 interface DecisionPanelProps {
   steps: PipelineStep[];
   models: { stt: string; jev: string | null; llm?: string | null };
   transcript: string | null;
   jev: JevTrace | null;
   plan: Plan | null;
+  /** Turnos concluídos nesta sessão (histórico em memória: morre no F5). */
+  sessionTurns?: number;
   suggestions: string[];
   onPick: (text: string) => void;
 }
 
 /**
- * System Two (Gemini 3.8 Flash): quando a fala tem várias ações, é ele que
+ * System Two (a melhor voz disponível): quando a fala tem várias ações, é ele que
  * planeia o comando inteiro. Com `status: "failed"` o JEV pode ter assumido —
  * as decisões dele aparecem logo abaixo, e o bloco diz isso.
  */
@@ -208,11 +294,17 @@ function LlmBlock({ llm, plan, jevTookOver }: { llm: LlmTrace; plan: Plan | null
 }
 
 /** Pipeline ao vivo + quem planeou (JEV ou System Two) e, nas listagens, como filtrou colunas e cards. */
-export function DecisionPanel({ steps, models, transcript, jev, plan, suggestions, onPick }: DecisionPanelProps) {
+export function DecisionPanel({ steps, models, transcript, jev, plan, sessionTurns = 0, suggestions, onPick }: DecisionPanelProps) {
   const trace = plan?.trace ?? null;
   // Comando composto: o JEV nem é consultado, então `trace.jev` vem null.
   const verdict = jev ?? trace?.jev ?? null;
   const llm = trace?.llm ?? null;
+  // Busca por característica do último comando (o evento pode não trazer nada disto).
+  const search = plan?.search ?? null;
+  const items = plan?.listing ?? [];
+  // Voz que respondeu: só quando o LLM participou — num plano "jev" o `plan.model`
+  // é o modelo do classificador, que não é voz nenhuma.
+  const voiceLabel = llm || plan?.provider === "llm" ? llmLabel(llm?.model ?? plan?.model) : null;
   const idle = !transcript && steps.every((step) => step.state === "idle");
   const modelOf: Record<PipelineStep["key"], string | null> = {
     stt: models.stt,
@@ -275,7 +367,7 @@ export function DecisionPanel({ steps, models, transcript, jev, plan, suggestion
             <li className="flex gap-3">
               <span className="tnum font-mono text-[11px] text-primary">4</span>
               <span>
-                <span className="text-foreground">Se a fala tem várias ações</span>, o comando inteiro vai ao <span className="text-foreground">System Two</span> (Gemini 3.8 Flash), que devolve o plano com 2..N ações — o JEV nem é consultado.
+                <span className="text-foreground">Se a fala tem várias ações</span>, o comando inteiro vai ao <span className="text-foreground">System Two</span> (a melhor voz disponível), que devolve o plano com 2..N ações — o JEV nem é consultado.
               </span>
             </li>
             <li className="flex gap-3">
@@ -307,6 +399,9 @@ export function DecisionPanel({ steps, models, transcript, jev, plan, suggestion
 
   return (
     <div className="space-y-5">
+      {/* sessão: turnos desta aba (um F5 zera) e, depois de uma busca, o que ela achou */}
+      <SessionChips turns={sessionTurns} search={search} items={items} />
+
       {/* pipeline */}
       <section aria-label="Etapas do comando">
         <h3 className="eyebrow mb-2.5">Pipeline</h3>
@@ -324,11 +419,23 @@ export function DecisionPanel({ steps, models, transcript, jev, plan, suggestion
             </li>
           ))}
         </ol>
-        {trace && (
-          <p className="mt-3 flex items-baseline justify-between border-t border-border/70 pt-2.5 text-[12px] text-muted-foreground">
-            <span>Do texto ao plano</span>
-            <span className="tnum font-mono text-foreground">{fmtMs(trace.totalMs)}</span>
-          </p>
+        {(voiceLabel || trace) && (
+          <div className="mt-3 space-y-1.5 border-t border-border/70 pt-2.5">
+            {voiceLabel && (
+              <p className="flex items-baseline justify-between gap-3 text-[12px] text-muted-foreground">
+                <span>Voz que respondeu</span>
+                <span className="truncate font-mono text-[10.5px] text-foreground" title="Modelo que o servidor escolheu para este plano">
+                  {voiceLabel}
+                </span>
+              </p>
+            )}
+            {trace && (
+              <p className="flex items-baseline justify-between gap-3 text-[12px] text-muted-foreground">
+                <span>Do texto ao plano</span>
+                <span className="tnum font-mono text-foreground">{fmtMs(trace.totalMs)}</span>
+              </p>
+            )}
+          </div>
         )}
       </section>
 
@@ -347,6 +454,9 @@ export function DecisionPanel({ steps, models, transcript, jev, plan, suggestion
           {alertNote && <p className="mt-1.5 text-[12px] text-muted-foreground">{alertNote}</p>}
         </section>
       )}
+
+      {/* busca por característica: os resultados no mesmo bloco de listagem, com os campos que casaram */}
+      {search && <SearchBlock search={search} items={items} />}
 
       {/* comando simultâneo: quem planeou foi o System Two (e, se ele falhou, o JEV seguiu daqui) */}
       {llm && <LlmBlock llm={llm} plan={plan} jevTookOver={Boolean(verdict)} />}

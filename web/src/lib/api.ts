@@ -1,4 +1,5 @@
 import type { ActionResult, Board, Plan, PlannedAction, PlanTrace, StatusPayload, JevTrace } from "./types";
+import type { SessionTurn } from "./session";
 
 export class ApiError extends Error {
   code: string;
@@ -68,16 +69,23 @@ export const api = {
    * `actions: []`, `band: "abstain"` e `warning`. Comando com várias ações
    * segue por outro caminho — o plano chega com `provider: "llm"` e
    * `trace.llm` (System Two), e o JEV pode nem ter sido consultado.
+   *
+   * `session` vai sempre: o `sessionId` é a chave do estado da conversa no
+   * servidor e `history` é o contexto das trocas anteriores (mais recente por
+   * último, já capado em web/src/lib/session.ts). O comando atual NÃO entra no
+   * histórico — ele viaja no `transcript`. Nada disto é persistido no
+   * navegador: um F5 começa uma sessão nova, de propósito.
    */
   agent: async (
     transcript: string,
     context: { lastCardId?: string | null },
     onEvent: (event: AgentEvent) => void,
+    session: { sessionId: string; history: SessionTurn[] },
   ): Promise<Plan> => {
     const res = await fetch("/api/agent?stream=1", {
       method: "POST",
       headers: { "content-type": "application/json", accept: "text/event-stream" },
-      body: JSON.stringify({ transcript, context }),
+      body: JSON.stringify({ transcript, context, sessionId: session.sessionId, history: session.history }),
     });
 
     if (!res.ok || !res.body) {

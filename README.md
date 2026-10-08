@@ -18,6 +18,7 @@ adivinhado.
 
 - [O que ele faz](#o-que-ele-faz)
 - [JEV decide os comandos simples — sem fallback genérico](#jev-decide-os-comandos-simples--sem-fallback-genérico)
+- [Novidades do upgrade](#novidades-do-upgrade)
 - [Microfone: como funciona e como diagnosticar](#microfone-como-funciona-e-como-diagnosticar)
 - [Início rápido (sem nenhuma chave)](#início-rápido-sem-nenhuma-chave)
 - [Configuração completa (.env)](#configuração-completa-env)
@@ -159,6 +160,43 @@ errada **ou** algum card esperado faltar na listagem. Rode-o sempre que mexer na
 
 ---
 
+## Novidades do upgrade
+
+Cinco capacidades novas no fluxo, todas verificadas ponta a ponta:
+
+- **Melhor voz dinâmica (OpenRouter)** — com `OPENROUTER_MODEL=auto` (padrão) o app descobre a melhor
+  voz disponível em `GET /api/v1/models`: o score é
+  `benchmarks.artificial_analysis.intelligence_index` (empate: `agentic_index`, depois preço), dentro
+  dos tetos `OPENROUTER_MAX_PROMPT_PRICE`/`OPENROUTER_MAX_COMPLETION_PRICE` (USD por 1M tokens;
+  vazios = sem limite de custo). Variantes `:batch` são descartadas. Se a descoberta falhar, vale o
+  **fallback fixo** `OPENROUTER_MODEL_FALLBACK` (padrão `google/gemini-3.8-flash`), e a escolha fica
+  em cache por `OPENROUTER_MODEL_TTL_MINUTES` (padrão `60`). Em **404/503** do modelo escolhido, o
+  cache zera e o app **re-resolve uma vez**. Hoje o `auto` escolhe **`anthropic/claude-opus-5.5`** ao
+  vivo.
+- **Histórico de sessão** — o front gera um `sessionId` **por carregamento de página** e o envia com
+  cada comando, junto do histórico da sessão (**≤ 20 turnos, 500 caracteres cada**). É **só memória**:
+  nada em `localStorage` — refresh = sessão nova, por design. O servidor injeta esses turnos como
+  **mensagens reais entre o system e o comando atual** e usa o mesmo `sessionId` como `session_id` do
+  JEV. É o que permite dizer *«o último pedido»* e voltar a cards citados em turnos anteriores.
+- **Busca por características** — *«quais atividades têm comentários sobre pagamento?»* não é
+  listagem para o JEV: um **pre-router determinístico** leva o comando ao **System Two**, que emite
+  `search_cards` — busca por texto em **nome + descrição + comentários + etiqueta + lista** (termos em
+  **AND**, tolerante a acentos, pontuação e emoji, com *score*) e filtros estruturais (**lista**,
+  **etiquetas TODAS**, **prazo** `any`/`set`/`none`/`overdue`/`today`/`week`, **arquivados**). O
+  resultado chega no payload SSE como `listing` + `search: {query, count}` e **não pede confirmação**
+  (é só leitura).
+- **Última pesquisa acionável** — todo comando que lista (a busca **ou** a cascata do JEV) guarda os
+  ids no *session-store* (**TTL 6 h, LRU de 500 sessões**). O comando seguinte pode dizer *«essas
+  atividades»*, *«os da última pesquisa»*, *«todos eles»*: o planner expande `@lastSearch` (ou a
+  expressão «última pesquisa») em **N ações concretas**. Sem pesquisa anterior ou com pesquisa vazia,
+  os avisos são **distintos**, em pt-BR.
+- **Multi-ações heterogêneas** — um comando pode disparar várias ações **completamente diferentes**
+  (*editar a descrição + marcar o prazo + comentar*, em cards distintos): o planejador LLM devolve
+  **todas na ordem falada** (regra 6 do prompt) e o executor continua a confirmar apenas
+  **criar/apagar**.
+
+---
+
 ## Microfone: como funciona e como diagnosticar
 
 A captura **não usa `MediaRecorder`** (webm/opus, a fonte clássica de "nunca transcreve"): o áudio é
@@ -224,10 +262,12 @@ campos; a tabela abaixo é a referência completa (inclui as variáveis novas da
 | `JEV_LIST_MAYBE` | `p` mínimo para listar **com ressalva «talvez»** (padrão `0.35`) | — |
 | `JEV_COL_INCLUDE` | `p` mínimo para a **coluna** passar no portão (padrão `0.35`, largo: se nenhuma passar, passam todas) | — |
 | `JEV_TIMEOUT_MS` | tempo máximo do JEV antes de responder «indisponível» (padrão `4000`) | — |
-| `OPENROUTER_MODEL` | **System Two**: modelo que planeia os comandos com várias ações — padrão `google/gemini-3.8-flash` | — |
-| `OPENROUTER_REASONING_EFFORT` | esforço de raciocínio do **Gemini** (System Two): `max` (padrão) · `xhigh` · `high` · `medium` · `low` · `minimal` · `none` | — |
-| `OPENROUTER_MAX_TOKENS` | teto de saída do Gemini (inclui os *reasoning tokens*), padrão `16000` | — |
-| `OPENROUTER_MAX_PROMPT_PRICE` / `..._COMPLETION_PRICE` | teto de custo opcional (USD por 1M tokens) | — |
+| `OPENROUTER_MODEL` | **System Two**: modelo que planeia os comandos com várias ações — `auto` (padrão) escolhe a **melhor voz disponível** em `GET /models` dentro dos tetos de preço; ou fixe um id (ex.: `google/gemini-3.8-flash`) | — |
+| `OPENROUTER_MODEL_FALLBACK` | modelo de reserva quando a descoberta automática falha (padrão `google/gemini-3.8-flash`) | — |
+| `OPENROUTER_MODEL_TTL_MINUTES` | validade da escolha automática, em minutos (padrão `60`) | — |
+| `OPENROUTER_REASONING_EFFORT` | esforço de raciocínio do **System Two**: `max` (padrão) · `xhigh` · `high` · `medium` · `low` · `minimal` · `none` | — |
+| `OPENROUTER_MAX_TOKENS` | teto de saída do System Two (inclui os *reasoning tokens*), padrão `16000` | — |
+| `OPENROUTER_MAX_PROMPT_PRICE` / `..._COMPLETION_PRICE` | teto de custo opcional (USD por 1M tokens) — vale também para a escolha automática do modelo | — |
 | `TRELLO_API_KEY` | chave da API do Trello | [trello.com/power-ups/admin](https://trello.com/power-ups/admin) |
 | `TRELLO_API_TOKEN` | token com escopo `read, write` | gerado pelo link "Token" no mesmo painel |
 | `TRELLO_BOARD_ID` | qual board controlar | `GET /api/trello/boards` |
@@ -274,13 +314,17 @@ escada, cobre a gramática essencial em pt-BR:
 | «o que há em fazendo?» | cascata: aprova a coluna *Fazendo* e avalia os cards dela |
 | «quais cards vencem esta semana?» | cascata por prazo, com ressalva «talvez» nos duvidosos |
 | «move revisar proposta para terminado, move comprar cabo para a fazer e cria um card chamado ligar ao contador» | **3 ações numa só fala**: o System Two (Gemini 3.8 Flash) planeia o comando inteiro e o app executa em sequência (criar confirma) |
+| «quais atividades têm comentários sobre pagamento?» | **busca por características**: o pre-router manda ao System Two, que emite `search_cards` (nome, descrição, comentários, etiqueta, lista) — só responde, sem confirmar |
+| «move essas atividades para terminado» | a **última pesquisa** vira N ações concretas; sem pesquisa anterior (ou vazia) o app avisa o que faltou |
 
 Datas aceitas: *hoje, amanhã, depois de amanhã, semana que vem, sexta(-feira), dia 20, 20/08,
 20 de agosto*, com ou sem hora (*«às 18h»*).
 
 > A partir de **duas ações numa fala**, o comando deixa de ser interpretado pelo JEV e passa a ser
 > planeado pelo **Gemini 3.8 Flash** (System Two) — é o que permite dizer três movimentos e uma criação
-> de uma vez só.
+> de uma vez só. O mesmo caminho atende as **buscas por características** (*«quais atividades têm
+> comentários sobre pagamento?»*), que o pre-router determinístico manda ao System Two — veja
+> [Novidades do upgrade](#novidades-do-upgrade).
 
 > A caixa de texto abaixo do botão aceita os mesmos comandos — alternativa permanente à voz
 > (e a razão de o app ser 100% utilizável sem microfone).
@@ -296,7 +340,7 @@ Datas aceitas: *hoje, amanhã, depois de amanhã, semana que vem, sexta(-feira),
 | `GET` | `/api/board` | snapshot do board (cache de 30 s; `?fresh=1` força releitura) |
 | `POST` | `/api/warm` | aquece o socket do JEV e o board (chamado quando a gravação começa) |
 | `POST` | `/api/stt` | multipart `audio` (WAV/webm/…) → transcrição (OpenAI STT) |
-| `POST` | `/api/agent` | `{ transcript, context? }` → plano `{ speech, actions[], needsConfirmation, provider, band, warning, listing?, trace }`; com `?stream=1` responde em **SSE** (`jev` → `plan`; num comando com várias ações não há evento `jev` e o plano traz `provider: "llm"` + `trace.llm`) |
+| `POST` | `/api/agent` | `{ transcript, sessionId?, history?[], context? }` → plano `{ speech, actions[], needsConfirmation, provider, band, warning, listing?, search?, trace }`; com `?stream=1` responde em **SSE** (`jev` → `plan`; num comando com várias ações não há evento `jev` e o plano traz `provider: "llm"` + `trace.llm`; numa busca por características o `listing` vem com `search: {query, count}`) |
 | `POST` | `/api/confirm` | `{ text }` → `yes` \| `no` \| `unclear` (o JEV classifica o «sim»/«cancela» falado) |
 | `POST` | `/api/actions` | `{ actions[], confirmed }` → executa; **428** se criar/apagar sem `confirmed: true` |
 | `GET` | `/api/trello/boards` | lista boards (para achar o `TRELLO_BOARD_ID`) |
@@ -355,6 +399,9 @@ trello-assistant/
 │   │       ├── jev-planner.js     # intenção CRUD, guardas, portão de colunas, lotes de cards
 │   │       ├── planner.js         # JEV → System Two (compostos) → local + eventos de progresso
 │   │       ├── agent.js           # System Two (Gemini 3.8 Flash) — planeia comandos compostos
+│   │       ├── model-picker.js    # melhor voz no OpenRouter (`auto`), cache e fallback
+│   │       ├── search-engine.js   # busca por características (texto + filtros estruturais)
+│   │       ├── session-store.js   # sessão e última pesquisa (TTL 6 h, LRU 500)
 │   │       ├── stt.js             # OpenAI STT (+ vocabulário do board)
 │   │       ├── board-cache.js     # cache em memória, patch pós-escrita
 │   │       ├── intent.js          # interpretador local pt-BR (sem chave OpenRouter)
@@ -367,7 +414,7 @@ trello-assistant/
     └── src/
         ├── App.tsx                # orquestração: voz → JEV/System Two → confirmação → execução
         ├── hooks/useVoiceCapture.ts   # PCM/AudioWorklet, VAD, dispositivos, diagnóstico
-        ├── lib/{api,audio,plan,speech,types}.ts
+        ├── lib/{api,audio,plan,session,speech,types}.ts   # `session.ts`: sessionId + histórico (≤20 turnos)
         └── components/            # OrbitStage, Planet, CommandDock, DecisionPanel, ListRail…
 ```
 
@@ -463,6 +510,7 @@ e a `kluser-me-agent-skill`, que mantém o inventário e a saúde das rotas publ
 | «Comandos simultâneos» diz que o Gemini falhou | `402`/`429`/`5xx` no OpenRouter durante o plano composto | o fluxo volta ao JEV; se ele também se abstiver, o app pede para reformular |
 | «Não consigo operar» / «Não encontrei nada…» | JEV absteve-se (pedido ambíguo) ou nenhum card passou o limiar | reformule dizendo a lista ou o card; baixe `JEV_LIST_INCLUDE`/`JEV_LIST_MAYBE` se estiver a esconder cards |
 | Listagem traz cards a mais | critério largo por desenho (*recall-first*) | os duvidosos vêm marcados «talvez»; suba `JEV_LIST_MAYBE` (até perto de `JEV_LIST_INCLUDE`) para os excluir |
+| *«essas atividades»* / *«os da última pesquisa»* não executa nada | não houve pesquisa anterior na sessão, ou ela voltou vazia | faça uma listagem ou busca antes; o aviso em pt-BR diz qual dos dois casos ocorreu |
 | 429 do OpenRouter | rate limit | o servidor já retenta com backoff e limita os lotes a 8 em paralelo; aguarde |
 
 ---

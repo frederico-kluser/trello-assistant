@@ -81,6 +81,9 @@ export interface TraceClause {
   decisions: Decision[];
 }
 
+/** Onde um item bateu numa busca por característica. */
+export type MatchedField = "name" | "desc" | "comment" | "label" | "list";
+
 /** Card que a cascata de listagem decidiu mostrar (plan.listing). */
 export interface ListingItem {
   id: string;
@@ -89,6 +92,15 @@ export interface ListingItem {
   due?: string | null;
   /** true = «talvez»: p ≥ JEV_LIST_MAYBE mas abaixo de JEV_LIST_INCLUDE. */
   maybe: boolean;
+  /* Campos da busca por característica: todos opcionais — um servidor antigo não os manda. */
+  /** Onde a busca casou neste item (vira chip pt-BR no painel). */
+  matchedFields?: MatchedField[];
+  /** Trecho do campo que casou (descrição/comentário), quando houver. */
+  descSnippet?: string;
+  /** Nome da lista do card, quando o plano souber (o `list` continua a ser o rótulo curto). */
+  listName?: string;
+  /** Relevância da busca (maior = melhor), quando o servidor mandar. */
+  score?: number;
 }
 
 /** Trace da cascata de listagem (trace.jev.listing): colunas → cards em lotes. */
@@ -124,8 +136,8 @@ export interface JevTrace {
 }
 
 /**
- * Trace do System Two (Gemini 3.8 Flash): só existe quando a fala tem várias
- * ações e o comando inteiro foi planeado pelo LLM.
+ * Trace do System Two (a melhor voz disponível no servidor): só existe quando a
+ * fala tem várias ações e o comando inteiro foi planeado pelo LLM.
  */
 export interface LlmTrace {
   status: "ok" | "failed";
@@ -154,6 +166,16 @@ export interface PlannedAction {
   [key: string]: unknown;
 }
 
+/**
+ * Busca por característica: `query` é o texto solto ou o critério estruturado
+ * que o servidor usou e `count` é quantas atividades ele achou. Os itens vêm em
+ * `plan.listing`.
+ */
+export interface PlanSearch {
+  query: string | Record<string, unknown>;
+  count: number;
+}
+
 export interface Plan {
   speech: string;
   actions: PlannedAction[];
@@ -167,6 +189,8 @@ export interface Plan {
   warning: string | null;
   /** Só em planos de listagem: os cards que a cascata decidiu listar. */
   listing?: ListingItem[];
+  /** Opcional: só existe quando o comando foi uma busca por característica. */
+  search?: PlanSearch | null;
   trace: PlanTrace;
 }
 

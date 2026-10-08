@@ -43,7 +43,16 @@ export const config = {
   openrouter: {
     apiKey: clean(process.env.OPENROUTER_API_KEY),
     baseUrl: clean(process.env.OPENROUTER_BASE_URL) || "https://openrouter.ai/api/v1",
-    model: clean(process.env.OPENROUTER_MODEL) || "google/gemini-3.8-flash",
+    // System Two (a voz do assistente). "auto" = melhor modelo descoberto em
+    // GET /models pelo services/model-picker.js (ver OPENROUTER_MODEL_FALLBACK).
+    model: clean(process.env.OPENROUTER_MODEL) || "auto",
+    // Reserva usada quando a descoberta automática falha (ou não acha candidato).
+    modelFallback: clean(process.env.OPENROUTER_MODEL_FALLBACK) || "google/gemini-3.8-flash",
+    // Validade da escolha automática, em minutos (padrão 60).
+    modelTtlMinutes: (() => {
+      const minutes = num(process.env.OPENROUTER_MODEL_TTL_MINUTES);
+      return minutes !== null && minutes > 0 ? minutes : 60;
+    })(),
     // Esforço de raciocínio do modelo: max | xhigh | high | medium | low | minimal | none.
     // Padrão "max" — o System Two pensa o máximo antes de devolver o plano (se o
     // modelo recusar o campo, agent.js repete uma vez sem ele).

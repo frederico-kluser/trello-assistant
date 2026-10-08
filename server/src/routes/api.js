@@ -4,6 +4,8 @@ import { capabilities, config, missingSetup } from "../config.js";
 import { AppError, SETUP_GUIDE } from "../lib/errors.js";
 import { transcribeAudio, vocabularyPrompt } from "../services/stt.js";
 import { planCommand } from "../services/planner.js";
+import { normalizeHistory } from "../services/agent.js";
+import { sessionStore } from "../services/session-store.js";
 import { classifyConfirmation } from "../services/jev-planner.js";
 import { warmJev } from "../services/jev.js";
 import { applyAction, describeAction, normalizeActions, requiresConfirmation } from "../domain/actions.js";
@@ -72,6 +74,13 @@ apiRouter.post("/stt", upload.single("audio"), async (req, res) => {
 
 /* ── Texto → plano de ações (JEV → MiMo → local) ──────────────────────── */
 
+/** Id de sessão do cliente: string não vazia de até 128 caracteres (regra do store). */
+export function normalizeSessionId(value) {
+  if (typeof value !== "string") return null;
+  const id = value.trim();
+  return id && id.length <= 128 ? id : null;
+}
+
 /**
  * Com `?stream=1` a resposta é um fluxo SSE: o navegador recebe o veredito do
  * JEV na hora (~0,5 s) e, se ele se abstiver, vê "MiMo assumiu" enquanto o
@@ -82,8 +91,17 @@ apiRouter.post("/agent", async (req, res) => {
   if (!transcript) {
     throw new AppError("bad_request", "Envie o texto transcrito em «transcript».", { status: 400 });
   }
+  // Sessão (opcional): dá continuidade entre comandos — última pesquisa e último
+  // card. Sem id válido não há estado de sessão (nada quebra).
+  const sessionId = normalizeSessionId(req.body?.sessionId);
+  // Histórico REAL da conversa: no máximo 20 turnos user/assistant, 500 chars cada.
+  const history = normalizeHistory(req.body?.history);
+  if (sessionId) sessionStore.touch(sessionId); // cada comando renova o TTL da sessão
   const context = {
     lastCardId: typeof req.body?.context?.lastCardId === "string" ? req.body.context.lastCardId : null,
+    sessionId,
+    history,
+    lastSearch: sessionId ? sessionStore.getLastSearch(sessionId) : null,
   };
 
   const board = await getBoardCached({ maxAgeMs: 30_000 });
@@ -116,6 +134,8 @@ apiRouter.post("/agent", async (req, res) => {
       band: plan.band ?? null,
       warning: plan.warning ?? null,
       listing: plan.listing ?? [],
+      // Busca por característica (read-only): a consulta e o total encontrado.
+      search: plan.search ?? null,
       trace: plan.trace,
     };
     if (stream) {

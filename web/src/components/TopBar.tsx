@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Mic, RefreshCw, Volume2, VolumeX } from "lucide-react";
 import type { StatusPayload } from "@/lib/types";
 import type { VoiceCapture } from "@/hooks/useVoiceCapture";
+import { turnLabel } from "@/lib/session";
 import { MicMenu } from "./MicMenu";
 
 export type EngineState = "idle" | "active" | "ok" | "warn" | "down";
@@ -37,13 +38,15 @@ interface TopBarProps {
   muted: boolean;
   capture: VoiceCapture;
   guide: string;
+  /** Turnos concluídos nesta sessão (memória apenas: um F5 zera). */
+  sessionTurns: number;
   onRefresh: () => void;
   onToggleMute: () => void;
 }
 
 const ago = (ms: number) => (ms < 8000 ? "agora" : ms < 60_000 ? `há ${Math.round(ms / 1000)} s` : `há ${Math.round(ms / 60_000)} min`);
 
-export function TopBar({ status, boardName, cardCount, sttState, jevState, syncedAt, refreshing, muted, capture, guide, onRefresh, onToggleMute }: TopBarProps) {
+export function TopBar({ status, boardName, cardCount, sttState, jevState, syncedAt, refreshing, muted, capture, guide, sessionTurns, onRefresh, onToggleMute }: TopBarProps) {
   const [micOpen, setMicOpen] = useState(false);
   const caps = status?.capabilities;
   const deviceLabel = capture.devices.find((device) => device.id === capture.deviceId)?.label;
@@ -79,6 +82,14 @@ export function TopBar({ status, boardName, cardCount, sttState, jevState, synce
         <EngineChip label="Voz" model={caps?.models.stt ?? null} state={sttState} title="Transcrição (OpenAI)" />
         <EngineChip label="JEV" model={caps?.models.jev ?? null} state={jevState} title="Classifica a intenção (CRUD), filtra colunas e avalia os cards em lotes" />
       </div>
+
+      <span
+        title="A conversa vive só nesta aba: recarregar a página começa uma sessão nova."
+        className="hidden shrink-0 items-center gap-2 rounded-md px-2 py-1 text-[12px] text-muted-foreground lg:inline-flex"
+      >
+        <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">sessão</span>
+        <span className="tnum">{turnLabel(sessionTurns)}</span>
+      </span>
 
       <div className="relative flex shrink-0 items-center gap-1">
         <button

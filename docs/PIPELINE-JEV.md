@@ -7,6 +7,10 @@
 > `google/gemini-3.8-flash` — que planeja o comando inteiro. O System Two também
 > fica reservado para geração de texto em criação/edição ("motivações"), que
 > **ainda não entra** nesta fase.
+>
+> **Nesta revisão**: o pre-router determinístico passou a mandar ao System Two
+> também as **buscas por características** (além dos comandos com 2+ cláusulas),
+> e a última listagem ficou acionável por comando seguinte — ver §11.
 
 ---
 
@@ -244,8 +248,57 @@ arrisca qualidade se o `state` crescer com ruído. Daí as travas:
 - `npm run eval:jev`: casos reais sobre o board demo, incluindo listagens com
   `listingIncludes`/`listingExcludes`; **exit 1** se alguma ação errada OU
   algum card esperado faltar na listagem. Rodar sempre que mudar as perguntas.
+- Cobertura nova em `server/test/`: `model-picker.test.js` (escolha `auto`,
+  tetos de preço, fallback, cache), `search-engine.test.js` (texto + filtros),
+  `session-store.test.js` (TTL/LRU/última pesquisa) e `orchestration.test.js`
+  (pre-router, `@lastSearch`, multi-ações).
 
-## 11. Fontes (dossiês Tavily, 2026)
+## 11. Pre-router determinístico e busca por características (`search_cards`)
+
+O fluxo continua **JEV-first**: o JEV faz o grosso e o pre-router só antecipa dois
+casos para o System Two.
+
+```
+fala → splitClauses → pre-router determinístico (isCharacteristicSearch)
+         │
+         ├─ 2+ cláusulas (ou guarda compound) ──┐
+         ├─ busca por características ──────────┤
+         │                                      ▼
+         │                         System Two (LLM, §6)
+         │                         {"type":"search_cards", …}
+         │                         → plan.listing + search {query, count}
+         │
+         └─ resto → JEV (fase 1 → 2 → 3, §2)
+                      └─ abstain / indisponível → esclarecimento, sem fallback genérico
+```
+
+- **System Two primeiro — 2+ cláusulas**: `splitClauses` devolve > 1 cláusula, ou
+  o JEV dispara a guarda `compound` num trecho único; o comando **inteiro** vai ao
+  System Two, que devolve **todas** as ações na ordem falada (regra 6 do prompt) —
+  inclusive ações **heterogêneas** (editar descrição + marcar prazo + comentar, em
+  cards distintos). É o §6, sem mudanças de contrato.
+- **System Two primeiro — busca por características**: o pre-router determinístico
+  (`isCharacteristicSearch`) reconhece pedidos do tipo *«quais atividades têm
+  comentários sobre pagamento?»* e manda o comando ao System Two, que emite a ação
+  de **leitura** `search_cards`. Quem a executa é `services/planner.js`, contra
+  `services/search-engine.js`: busca por texto em **nome + descrição + comentários
+  + etiqueta + lista** (termos em **AND**, texto normalizado — acentos, pontuação e
+  emoji —, com *score*) combinada com filtros estruturais (lista, etiquetas
+  **TODAS**, prazo `any|set|none|overdue|today|week`, arquivados). O resultado sai
+  no payload SSE como `listing` + `search: {query, count}` e **nunca confirma**
+  (read-only).
+- **JEV para o resto**: qualquer comando que não caia nos dois casos acima segue o
+  pipeline normal (§2–§4), incluindo CRUD e as listagens por cascata.
+- **Abstenção não mudou**: `abstain`/indisponível → `actions: []` + `warning` +
+  pedido de reformulação, **sem fallback genérico** (§6).
+- **Última pesquisa acionável** (transversal aos dois caminhos): toda listagem —
+  busca ou cascata — grava os ids no *session-store* (`services/session-store.js`,
+  TTL **6 h**, LRU **500** sessões); o comando seguinte pode dizer *«essas
+  atividades»*/*«os da última pesquisa»* e o planner expande `@lastSearch` em **N
+  ações concretas**, com avisos **distintos** para "sem pesquisa anterior" e
+  "pesquisa vazia".
+
+## 12. Fontes (dossiês Tavily, 2026)
 
 - TypeSafe docs — [primitives](https://docs.typesafe.ai/primitives) ·
   [state](https://docs.typesafe.ai/concepts/state) ·

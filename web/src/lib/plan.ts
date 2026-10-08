@@ -1,19 +1,23 @@
 /* Ajudantes de leitura do plano — o papel do System Two (comandos simultâneos). */
 
 import type { LlmTrace, Plan } from "./types";
+import { VOICE_FALLBACK_LABEL, isAutoModel } from "./session";
 
-/** Modelo do System Two quando o servidor não diz qual usou (o padrão do projeto). */
-export const LLM_FALLBACK_MODEL = "google/gemini-3.8-flash";
-
-/** «google/gemini-3.8-flash» → «Gemini 3.8 Flash». */
+/**
+ * «provedor/nome-do-modelo» → «Nome Do Modelo». O front não fixa id de modelo:
+ * quem manda é o `model` do evento do plano e, sem ele (ou vindo como "auto"),
+ * o rótulo neutro `VOICE_FALLBACK_LABEL`.
+ */
 export function llmLabel(model?: string | null): string {
-  const slug = (model ?? "").split("/").filter(Boolean).pop() ?? "";
-  if (!slug) return "Gemini 3.8 Flash";
-  return slug
-    .split("-")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+  if (isAutoModel(model)) return VOICE_FALLBACK_LABEL;
+  const slug = String(model).split("/").filter(Boolean).pop() ?? "";
+  return (
+    slug
+      .split("-")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ") || VOICE_FALLBACK_LABEL
+  );
 }
 
 /** Ações que o plano composto traz (2..N numa só fala). */
