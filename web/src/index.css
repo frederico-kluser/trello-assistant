@@ -312,7 +312,8 @@
       0 0 0 2px hsl(28 90% 70% / 0.7),
       0 0 120px -8px hsl(28 90% 55% / 0.8);
   }
-  .planet[data-phase="confirming"] {
+  .planet[data-phase="confirming"],
+  .planet[data-phase="asking"] {
     box-shadow:
       inset -16px -22px 40px hsl(14 70% 8% / 0.62),
       inset 10px 12px 26px hsl(38 100% 85% / 0.35),

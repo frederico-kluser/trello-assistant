@@ -1,15 +1,24 @@
-import type { ActionResult, Board, Plan, PlannedAction, PlanTrace, StatusPayload, JevTrace } from "./types";
+import type { ActionResult, Board, Plan, PlannedAction, PlanQuestion, PlanTrace, StatusPayload, JevTrace } from "./types";
 import type { SessionTurn } from "./session";
 
 export class ApiError extends Error {
   code: string;
   hint: string | null;
+  /** `detail` do erro do servidor: candidatos de referência, `failedIndex`, `question`… */
+  detail: Record<string, unknown> | null;
 
-  constructor(code: string, message: string, hint: string | null = null) {
+  constructor(code: string, message: string, hint: string | null = null, detail: Record<string, unknown> | null = null) {
     super(message);
     this.name = "ApiError";
     this.code = code;
     this.hint = hint;
+    this.detail = detail;
+  }
+
+  /** Pergunta de desbloqueio que veio no erro (execução com referência ambígua/desconhecida). */
+  get question(): PlanQuestion | null {
+    const question = this.detail?.question as PlanQuestion | undefined;
+    return question && typeof question.prompt === "string" ? question : null;
   }
 }
 
@@ -161,8 +170,8 @@ async function request<T>(path: string, init?: RequestInit, options?: { timeoutM
   }
 
   if (!res.ok) {
-    const error = payload.error as { code?: string; message?: string; hint?: string } | undefined;
-    throw new ApiError(error?.code ?? `http_${res.status}`, error?.message ?? `Falha na requisição (${res.status})`, error?.hint ?? null);
+    const error = payload.error as { code?: string; message?: string; hint?: string; detail?: Record<string, unknown> | null } | undefined;
+    throw new ApiError(error?.code ?? `http_${res.status}`, error?.message ?? `Falha na requisição (${res.status})`, error?.hint ?? null, error?.detail ?? null);
   }
   return payload as T;
 }
@@ -415,7 +424,7 @@ export const api = {
    */
   agent: async (
     transcript: string,
-    context: { lastCardId?: string | null },
+    context: { lastCardId?: string | null; answer?: { question: string; chosen: string } | null },
     onEvent: (event: AgentEvent) => void,
     session: { sessionId: string; history: SessionTurn[] },
     options: AgentStreamOptions = {},
@@ -470,11 +479,15 @@ export const api = {
   confirm: (text: string, pending: string) =>
     request<ConfirmResult>("/api/confirm", { method: "POST", body: JSON.stringify({ text, pending }) }),
 
-  /** Executa o plano. `confirmed` é obrigatório para criar/apagar. */
-  execute: (actions: PlannedAction[], confirmed: boolean) =>
+  /**
+   * Executa o plano. `confirmed` é obrigatório para apagar. `transcript` é o
+   * pedido original (opcional): quando uma referência não resolve na execução,
+   * o servidor gera a pergunta de desbloqueio com este contexto.
+   */
+  execute: (actions: PlannedAction[], confirmed: boolean, transcript = "") =>
     request<{ ok: boolean; results: ActionResult[]; board: Board }>("/api/actions", {
       method: "POST",
-      body: JSON.stringify({ actions, confirmed }),
+      body: JSON.stringify({ actions, confirmed, transcript }),
     }),
 
   trelloBoards: () => request<{ boards: { id: string; name: string; url: string }[] }>("/api/trello/boards"),

@@ -13,14 +13,15 @@
  * dar continuidade ("essas atividades", "aquele card que a gente criou").
  * Futuro: gerar texto (nome/descrição/"motivações") nos fluxos de criar/editar.
  *
- * Contrato: a fala + snapshot do board (+ histórico + última pesquisa) entram;
- * sai um plano JSON { speech, needsConfirmation, actions[] }. Em falha lança
- * MimoError.
+ * Contrato: a fala + snapshot do board (+ histórico + última pesquisa + resposta
+ * a uma pergunta de desbloqueio) entram; sai um plano JSON
+ * { speech, needsConfirmation, actions[], question? }. Em falha lança MimoError.
  */
 import { performance } from "node:perf_hooks";
 import { config } from "../config.js";
 import { HttpError, request } from "../lib/http.js";
 import { describeAction, normalizeActions, requiresConfirmation } from "../domain/actions.js";
+import { parseQuestion } from "./question.js";
 import { resetModelCache, resolveChatModel } from "./model-picker.js";
 
 /** Ação de LEITURA do vocabulário: busca por característica (não vai ao executor). */
@@ -68,8 +69,11 @@ REGRAS
 {
   "speech": "o que o app vai falar para a pessoa (pt-BR, 1 a 2 frases, tom natural)",
   "needsConfirmation": true|false,
-  "actions": [ { ... } ]
+  "actions": [ { ... } ],
+  "question": { "prompt": "...", "options": [ { "label": "...", "value": "..." } ] }
 }
+   O objeto "question" é OPCIONAL: só entra quando você NÃO consegue completar a
+   tarefa (ver regra 8).
 3. Tipos de ação (use SOMENTE estes):
    {"type":"create_card","name":"...","list":"...","desc":"...","due":"AAAA-MM-DD","labels":["..."],"position":"top|bottom"}
    {"type":"delete_card","card":"...","reason":"..."}
@@ -101,8 +105,14 @@ REGRAS
    Não resuma, não junte duas ações numa e não descarte nenhuma: a quantidade de
    ações da sua resposta tem de bater com a do pedido.
 7. Pedidos de informação ("o que tenho?", "quais cards?") NÃO são ações: devolva "actions": [] e responda no "speech" usando o board.
-8. NUNCA invente lista ou card que não existe no board. Se estiver ambíguo, devolva "actions": [] e peça esclarecimento no "speech".
-9. "needsConfirmation" é true SOMENTE para create_card / delete_card ou quando há ambiguidade. Ações de mover/editar/prazo/comentar são diretas.
+8. NUNCA invente lista ou card que não existe no board. Se estiver ambíguo ou faltar
+   informação para completar a tarefa (qual card, qual lista, qual data, qual texto),
+   devolva "actions": [] e o objeto "question": uma PERGUNTA curta em "prompt" e 2 a 5
+   OPÇÕES concretas em "options" que, escolhidas, completam a tarefa. Use os NOMES
+   REAIS do board nas opções quando a dúvida for sobre card/lista. "label" é o que a
+   pessoa vê (curto); "value" é o texto da resposta (ex.: nome do card, "amanhã").
+9. "needsConfirmation" é true SOMENTE para delete_card (apagar é definitivo). NENHUMA
+   outra ação pede confirmação — mover/editar/prazo/comentar/criar executam direto.
 10. "speech" sempre em português do Brasil, na primeira pessoa ("Vou criar…", "Movendo…", "O card X já está…").
 11. delete_card é destrutivo: deixe isso claro no "speech".
 12. As mensagens ANTERIORES a esta são turnos REAIS desta mesma sessão (o que a
@@ -145,8 +155,19 @@ function lastSearchDigest(lastSearch, board) {
   return `\n\nÚLTIMA PESQUISA (${cards.length} ${cards.length === 1 ? "atividade" : "atividades"} — "essas atividades", "os da última pesquisa" e o marcador "@lastSearch" referem-se a estes cards):\n${lines.join("\n")}`;
 }
 
-/** Extrai o JSON do texto do modelo com tolerância a cercas de código e ruído. */
-export function extractJson(text) {
+/**
+ * Resposta da pessoa a uma pergunta de desbloqueio ("não consegui completar:
+ * qual card?"). Com ela, o System Two completa a tarefa original em vez de
+ * recomeçar do zero.
+ */
+function answerDigest(answer) {
+  const question = String(answer?.question ?? "").trim();
+  const chosen = String(answer?.chosen ?? "").trim();
+  if (!chosen) return "";
+  return `\n\nA PESSOA JÁ FOI PERGUNTADA (o comando não pôde ser completado) e respondeu:\nPERGUNTA: "${question}"\nRESPOSTA: "${chosen}"\nUse a resposta para preencher o que faltava (card, lista, data, texto) e complete a TAREFA ORIGINAL — devolva o plano já resolvido, sem pedir outra confirmação.`;
+}
+
+/** Extrai o JSON do texto do modelo com tolerância a cercas de código e ruído. */export function extractJson(text) {
   const raw = String(text ?? "").trim();
   if (!raw) return null;
 
@@ -205,8 +226,11 @@ export function parsePlan(content, { transcript, board }) {
   if (!json || typeof json !== "object") return null;
 
   const actions = normalizePlanActions(json.actions);
+  // Pergunta com opções só interessa quando a tarefa NÃO foi completada (sem ações).
+  const question = actions.length ? null : parseQuestion(json.question);
   const speechSource = typeof json.speech === "string" ? json.speech.trim() : "";
   const speech =
+    question?.prompt ||
     speechSource ||
     (actions.length
       ? `Vou ${actions.map((action) => describeAction(action, board)).join(" e ")}.`
@@ -215,7 +239,9 @@ export function parsePlan(content, { transcript, board }) {
   return {
     speech,
     actions,
-    needsConfirmation: json.needsConfirmation === true || actions.some(requiresConfirmation),
+    // Só delete confirma — a ambiguidade vira pergunta com opções, não "confirma?".
+    needsConfirmation: actions.some(requiresConfirmation),
+    question,
   };
 }
 
@@ -237,7 +263,7 @@ function rejectsModel(err) {
   return err instanceof HttpError && (err.status === 404 || err.status === 503);
 }
 
-/** @returns {Promise<{plan:{speech:string,actions:object[],needsConfirmation:boolean}, model:string, servedModel:string, latencyMs:number}>} */
+/** @returns {Promise<{plan:{speech:string,actions:object[],needsConfirmation:boolean,question:object|null}, model:string, servedModel:string, latencyMs:number}>} */
 export async function planWithMimo({ transcript, board, context = {} }) {
   if (!config.openrouter.apiKey) throw new MimoError("no_key", "falta OPENROUTER_API_KEY");
   const text = String(transcript ?? "").trim();
@@ -248,7 +274,7 @@ export async function planWithMimo({ transcript, board, context = {} }) {
   // com cache interno). Nunca lança — o pior caso é o modelo de reserva.
   let { modelId } = await resolveChatModel();
 
-  const userContent = `${boardDigest(board)}${last ? `\n\nÚLTIMO CARD CITADO (use para "ele/ela/esse card"): "${last.name}"` : ""}${lastSearchDigest(context.lastSearch, board)}\n\nO QUE A PESSOA FALOU:\n${text}`;
+  const userContent = `${boardDigest(board)}${last ? `\n\nÚLTIMO CARD CITADO (use para "ele/ela/esse card"): "${last.name}"` : ""}${lastSearchDigest(context.lastSearch, board)}${answerDigest(context.answer)}\n\nO QUE A PESSOA FALOU:\n${text}`;
   // Histórico REAL da sessão entre o system e o turno atual (turnos verbatim).
   const messages = [
     { role: "system", content: SYSTEM_PROMPT.replace("{{TODAY}}", TODAY()) },

@@ -15,7 +15,7 @@ const STEP_LABEL: Record<PipelineStep["key"], string> = {
 
 const BAND: Record<Band, { label: string; bar: string; chip: string }> = {
   auto: { label: "direto", bar: "bg-success", chip: "text-success" },
-  hitl: { label: "confirmar", bar: "bg-warning", chip: "text-warning" },
+  hitl: { label: "confiança média", bar: "bg-warning", chip: "text-warning" },
   abstain: { label: "abstém-se", bar: "bg-destructive", chip: "text-destructive" },
 };
 

@@ -72,8 +72,8 @@ test("normalizeActions descarta tipos desconhecidos", () => {
   assert.equal(actions[0].type, "create_card");
 });
 
-test("criar e apagar exigem confirmação; mover não", () => {
-  assert.equal(requiresConfirmation({ type: "create_card" }), true);
+test("só apagar exige confirmação; criar/mover/prazo não", () => {
+  assert.equal(requiresConfirmation({ type: "create_card" }), false);
   assert.equal(requiresConfirmation({ type: "delete_card" }), true);
   assert.equal(requiresConfirmation({ type: "move_card" }), false);
   assert.equal(requiresConfirmation({ type: "set_due" }), false);

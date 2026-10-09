@@ -195,7 +195,7 @@ test("mover: alta confiança vira ação com ids e banda auto (sem confirmação
   assert.ok(r.decisions.find((d) => d.id === "card").used);
 });
 
-test("confiança média no card (hitl) propaga para o plano → pede confirmação", () => {
+test("confiança média no card (hitl) propaga para o plano — banda hitl, sem confirmação", () => {
   const r = clause("move o readme para feito", {
     intent: choice("move_card"),
     card: choice("Escrever o README", 0.7),
@@ -217,7 +217,7 @@ test("guardas moderadas na direção esperada NÃO pedem confirmação (86% 'cla
   assert.equal(r.band, "auto");
 });
 
-test("guardas em dúvida pedem confirmação; guardas fortes bloqueiam", () => {
+test("guardas em dúvida viram hitl (sem travar); guardas fortes bloqueiam", () => {
   const base = { intent: choice("move_card"), card: choice("Escrever o README"), list: choice("Feito") };
   assert.equal(clause("x", { ...base, clear: noul(0.62) }).band, "hitl");
   assert.equal(clause("x", { ...base, compound: noul(0.45) }).band, "hitl");
@@ -257,7 +257,7 @@ test("sem card identificado (e sem pronome) o JEV avisa em vez de adivinhar", ()
   assert.equal(r.code, "no_card");
 });
 
-test("pronome usa o último card, sempre com confirmação (hitl)", () => {
+test("pronome usa o último card, com banda hitl (confiança média)", () => {
   const last = card("Comprar cabo HDMI");
   const r = clause(
     "muda ele pra feito",
@@ -280,7 +280,7 @@ test("ajuda lexical: JEV disse NENHUM sem certeza, mas a fala cita um card únic
   assert.ok(r.action.due);
 });
 
-test("menção parcial: JEV 'nenhum card' com 99% mas a fala cita uma palavra única → candidato com confirmação", () => {
+test("menção parcial: JEV 'nenhum card' com 99% mas a fala cita uma palavra única → candidato com hitl", () => {
   const r = clause("põe o contador em fazendo", {
     intent: choice("move_card"),
     card: choice("NENHUM", 0.99),
@@ -288,10 +288,10 @@ test("menção parcial: JEV 'nenhum card' com 99% mas a fala cita uma palavra ú
   });
   assert.equal(r.status, "ok");
   assert.equal(r.action.card, card("Ligar para o contador").id);
-  assert.equal(r.band, "hitl"); // nunca executa às cegas
+  assert.equal(r.band, "hitl"); // confiança média: executa sem pedir confirmação
 });
 
-test("JEV duvida do card (40%) mas a fala tem palavra única → usa o candidato lexical, com confirmação", () => {
+test("JEV duvida do card (40%) mas a fala tem palavra única → usa o candidato lexical, com hitl", () => {
   const r = clause("muda o prazo do contador pra sexta", { intent: choice("set_due"), card: choice("Escrever o README", 0.4) });
   assert.equal(r.status, "ok");
   assert.equal(r.action.card, card("Ligar para o contador").id); // o palpite fraco do JEV (README) é ignorado
@@ -808,7 +808,7 @@ test("JEV opera → nenhum chat/completions é chamado", async () => {
   setJevTransport(null);
 });
 
-test("abstenção que NÃO é composta (low_intent) → esclarecimento, sem chat/completions", async () => {
+test("abstenção que NÃO é composta (low_intent) → pergunta com opções, sem planner LLM", async () => {
   const realFetch = globalThis.fetch;
   setJevTransport(reply(phase1({ intent: choice("move_card", 0.3) })));
   globalThis.fetch = async (url) => {
@@ -817,7 +817,7 @@ test("abstenção que NÃO é composta (low_intent) → esclarecimento, sem chat
   const r = await planCommand({ transcript: "dá um jeito naquilo", board });
   assert.equal(r.provider, "jev");
   assert.equal(r.trace.engine, "jev");
-  assert.equal(r.trace.llm, null);
+  assert.equal(r.trace.llm, null); // não houve planner LLM: a rede caiu e o fallback respondeu
   assert.equal(r.band, "abstain");
   assert.deepEqual(r.actions, []);
   assert.equal(r.needsConfirmation, false);
@@ -825,7 +825,11 @@ test("abstenção que NÃO é composta (low_intent) → esclarecimento, sem chat
   assert.equal(r.trace.fallback, null);
   assert.equal(r.trace.jev.code, "low_intent");
   assert.match(r.warning, /não consigo operar/);
-  assert.match(r.speech, /^não consigo operar.*Pode reformular ou dar mais detalhes\?$/);
+  // O que não se completou PERGUNTA-SE: pergunta com opções, falada como speech.
+  assert.ok(r.question, "o plano traz a pergunta de desbloqueio");
+  assert.equal(r.speech, r.question.prompt);
+  assert.match(r.speech, /O que você quer fazer\?$/);
+  assert.ok(r.question.options.length >= 2);
   globalThis.fetch = realFetch;
   setJevTransport(null);
 });
@@ -871,7 +875,7 @@ test("sem JEV (chave ausente) o interpretador local mantém o app vivo, sem rede
   globalThis.fetch = realFetch;
 });
 
-test("criar/apagar sempre pedem confirmação, mesmo com o JEV 100% confiante", async () => {
+test("só apagar pede confirmação, mesmo com o JEV 100% confiante (criar executa direto)", async () => {
   setJevTransport(reply(phase1({ intent: choice("delete_card", 1), card: choice("Comprar cabo HDMI", 1) })));
   const r = await planCommand({ transcript: "apaga o cabo hdmi", board });
   assert.equal(r.provider, "jev");
@@ -883,7 +887,7 @@ test("criar/apagar sempre pedem confirmação, mesmo com o JEV 100% confiante", 
   setJevTransport(reply(phase1({ intent: choice("create_card", 1), list: choice("A Fazer", 1) })));
   const created = await planCommand({ transcript: "cria um card chamado revisar proposta na lista a fazer", board });
   assert.equal(created.actions[0].type, "create_card");
-  assert.equal(created.needsConfirmation, true);
+  assert.equal(created.needsConfirmation, false); // nada de confirmação fora do delete
   setJevTransport(null);
 });
 
@@ -1032,7 +1036,7 @@ test("System Two falha num composto → cai no JEV por cláusulas e ainda devolv
   }
 });
 
-test("System Two falha E o JEV abstém → esclarecimento com warning sobre a falha do planejador", async () => {
+test("System Two falha E o JEV abstém → pergunta de desbloqueio com warning sobre a falha do planejador", async () => {
   const chat = stubChat("", { status: 400 });
   setJevTransport(reply(phase1({ intent: choice("delete_card", 1) }))); // no_card nos dois trechos
   const said = "apaga aquilo lá e arquiva o resto";
@@ -1046,7 +1050,11 @@ test("System Two falha E o JEV abstém → esclarecimento com warning sobre a fa
     assert.equal(r.trace.jev.code, "no_card");
     assert.match(r.warning, /não identifiquei qual card/);
     assert.match(r.warning, /planejador do comando inteiro falhou/);
-    assert.match(r.speech, /Pode reformular ou dar mais detalhes\?$/);
+    // A abstenção vira pergunta com opções (aqui, fallback: o chat está 400).
+    assert.ok(r.question, "o plano traz a pergunta de desbloqueio");
+    assert.equal(r.speech, r.question.prompt);
+    assert.match(r.speech, /Qual destes\?$/);
+    assert.ok(r.question.options.length >= 1);
   } finally {
     chat.restore();
     setJevTransport(null);

@@ -3,9 +3,9 @@
 **Pilote seu board do Trello por voz.** Você fala → a **OpenAI** transcreve → o **JEV** (modelo
 "System One" da TypeSafe, via OpenRouter) decide a intenção (criar, editar, mover, apagar ou listar)
 em **~0,4 s** → o app executa pela API do Trello e responde em áudio. Quando a fala traz **várias
-ações**, o comando inteiro vai ao **Gemini 3.8 Flash** — o *System Two* do app. **Fora isso não há
-reserva genérica**: quando o JEV se abstém ou está indisponível, ele pede que você reformule — nada é
-adivinhado.
+ações**, o comando inteiro vai ao **Gemini 3.8 Flash** — o *System Two* do app. **Só apagar pede
+confirmação**; e quando o sistema **não consegue completar a tarefa**, ele **pergunta com opções**
+(geradas pelo LLM, com nomes reais do board) em vez de morrer em «reformule» — nada é adivinhado.
 
 ![Trello Orbit: o board como um sistema solar, com o pipeline e as decisões do JEV ao lado](docs/img/orbit-jev.webp)
 
@@ -18,6 +18,7 @@ adivinhado.
 
 - [O que ele faz](#o-que-ele-faz)
 - [JEV decide os comandos simples — sem fallback genérico](#jev-decide-os-comandos-simples--sem-fallback-genérico)
+- [Pergunta com opções — o que não se completa, pergunta-se](#pergunta-com-opções--o-que-não-se-completa-pergunta-se)
 - [Novidades do upgrade](#novidades-do-upgrade)
 - [Upgrade mobile e rede (out/2026)](#upgrade-mobile-e-rede-out2026)
 - [Microfone: como funciona e como diagnosticar](#microfone-como-funciona-e-como-diagnosticar)
@@ -54,13 +55,15 @@ adivinhado.
 5. Se a intenção é **listagem**, a cascata continua: as colunas aprovadas viram candidatas e o JEV
    avalia os **cards em lotes de 16** («este card deve ser listado?»), com ressalva *talvez* para os
    duvidosos. Se é **criar/editar/mover/apagar**, o plano sai em **~0,4 s**, montado por código.
-6. **Mover, prazo, comentar…** executam direto quando a confiança é alta; confiança média pede um
-   ok; **criar/apagar sempre confirmam** (apagar só segurando o botão). **Listagem nunca confirma**:
-   só responde. Você pode confirmar **por voz** («sim», «cancela»): o JEV classifica a resposta.
-7. Se o JEV **se abstém** (confiança < 50%, fala ininteligível, card ambíguo) ou fica
-   **indisponível**, ele **não passa a vez a ninguém**: a tela mostra o motivo, o app pede que você
-   reformule e **nada é executado**. A exceção é o comando com várias ações, que vai ao System Two —
-   e, se o Gemini falhar, o fluxo volta ao JEV.
+6. **Só apagar pede confirmação** (hold-to-confirm, nunca por voz). Criar, mover, editar, prazo,
+   comentar e arquivar **executam direto** — mesmo com confiança média (o app deixa a nota «confiança
+   média» no histórico). **Listagem nunca confirma**: só responde.
+7. Se **não dá para completar a tarefa** (card/lista/data/texto em falta, referência ambígua, fala
+   ininteligível), o app **pergunta com opções**: o LLM gera a pergunta («Qual card você quer?») e as
+   opções com **nomes reais do board**; você responde por **botão, voz ou texto** e a tarefa
+   completa-se na resposta. Só se o JEV estiver **indisponível** (créditos, rede) nada é executado e o
+   app pede para tentar de novo. A exceção continua a ser o comando com várias ações, que vai ao
+   System Two — e, se o Gemini falhar, o fluxo volta ao JEV.
 8. O servidor aplica na **API REST do Trello** (ou num board demo) e o app responde em áudio.
 
 Tudo funciona **sem chaves**: o app degrada com elegância (STT do navegador · interpretador local
@@ -70,7 +73,7 @@ pt-BR · board de demonstração) e mostra no painel exatamente o que falta.
 
 | Ação | Com a voz | Confirmação? |
 |---|---|---|
-| Criar card (nome, lista, descrição, prazo, etiquetas) | «cria card X na lista Y com prazo amanhã» | ✅ sempre |
+| Criar card (nome, lista, descrição, prazo, etiquetas) | «cria card X na lista Y com prazo amanhã» | não (executa direto) |
 | Apagar card (definitivo) | «apaga o card X» | ✅ sempre (hold-to-confirm) |
 | Mover card entre listas | «move X para fazendo» | não (narra e executa) |
 | Editar card (nome, descrição, etiquetas) | «renomeia X para Y» / «coloca etiqueta urgente em X» | não |
@@ -130,13 +133,15 @@ comentário e a fala da listagem (agrupada por coluna, com «e mais N»). Falas 
 (*«move A para fazendo, apaga B e cria C»*) não passam por aqui: o comando inteiro vai ao **System
 Two**, que devolve o plano completo — o JEV fica com os comandos de uma ação.
 
-**Bandas de confiança** (`JEV_AUTO_THRESHOLD`, padrão 0,80): `auto` executa · `hitl` (0,50–0,79) pede um
-ok · `abstain` (< 0,50) **não delega a ninguém**. Criar e apagar confirmam sempre; **listagem nunca
-confirma** (é só leitura) e é *recall-first*: na dúvida o card entra com a ressalva «talvez», porque
-omitir um card que interessa seria o único erro grave. Sem **fallback genérico**, abstenção ou
-indisponibilidade (créditos, rede, 5xx) viram a mesma resposta honesta: **o motivo aparece na tela e o
-app pede que você reformule** — nenhuma ação é executada por adivinhação. A única exceção é o
-**comando com várias ações**, que vai ao System Two; se o Gemini falhar, o fluxo volta ao JEV.
+**Bandas de confiança** (`JEV_AUTO_THRESHOLD`, padrão 0,80): `auto` executa · `hitl` (0,50–0,79)
+confiança média — **executa direto** com a nota «confiança média» no histórico · `abstain` (< 0,50)
+**não delega a ninguém**. Só **apagar** confirma (hold-to-confirm); **listagem nunca confirma** (é só
+leitura) e é *recall-first*: na dúvida o card entra com a ressalva «talvez», porque omitir um card que
+interesse seria o único erro grave. Não há **fallback que adivinhe**: o que não se completou vira
+**pergunta com opções** (ver [Pergunta com opções](#pergunta-com-opções--o-que-não-se-completa-pergunta-se)) e a
+indisponibilidade (créditos, rede, 5xx) pede para tentar de novo — **nenhuma ação é executada por
+adivinhação**. A única exceção é o **comando com várias ações**, que vai ao System Two; se o Gemini
+falhar, o fluxo volta ao JEV.
 
 O `/api/agent?stream=1` transmite eventos (SSE): o veredito da fase 1 chega em ~0,5 s, enquanto a
 cascata de cards (3 lotes em paralelo para ~40 cards) e o plano final ainda correm — ~0,7–1 s a mais
@@ -148,8 +153,10 @@ chega com `provider: "llm"` e `trace.llm`.
 *«Move A para terminado, move B para terminado e move C para fazendo»* não é um comando para o JEV: é
 um plano. Quem o monta é o **Gemini 3.8 Flash** (`google/gemini-3.8-flash` no OpenRouter), o *System
 Two* do app — numa só chamada devolve **2..N ações** na ordem certa, e o
-`OPENROUTER_REASONING_EFFORT` controla quanto ele pensa antes de responder. É o **único** papel do LLM
-no pipeline; no futuro ele também gera texto (nome, descrição, "motivações") em criar/editar.
+`OPENROUTER_REASONING_EFFORT` controla quanto ele pensa antes de responder. Para além do plano, o LLM
+gera as **perguntas com opções** do fluxo de desbloqueio (ver
+[Pergunta com opções](#pergunta-com-opções--o-que-não-se-completa-pergunta-se)) e, no futuro, o texto
+(nome, descrição, "motivações") em criar/editar.
 
 No painel de **Decisões** aparece o bloco **«Comandos simultâneos»** com o modelo, o número de ações e
 o tempo; se o Gemini falhar, o motivo fica ali e o JEV assume o comando.
@@ -158,6 +165,26 @@ o tempo; se o Gemini falhar, o motivo fica ali e o JEV assume o comando.
 listagens** (casos com `listingIncludes`/`listingExcludes`) e falha (**exit 1**) se houver alguma ação
 errada **ou** algum card esperado faltar na listagem. Rode-o sempre que mexer nas perguntas em
 `services/jev-planner.js`.
+
+---
+
+### Pergunta com opções — o que não se completa, pergunta-se
+
+Quando o sistema **não consegue completar a tarefa** — «apaga o card» sem dizer qual, «move para
+fazendo» sem card, data em falta, referência que bate em dois cards — ele não morre em «reformule»:
+**gera uma pergunta COM OPÇÕES** e a tarefa completa-se na resposta.
+
+- **Quem gera**: o **System Two** (LLM) redige a pergunta e escolhe 2–5 opções concretas com os
+  **nomes reais do board** (na execução, os candidatos da ambiguidade são fechados — o modelo só pode
+  escolher entre eles). Sem chave ou sem rede, um **fallback determinístico** monta a mesma pergunta a
+  partir dos candidatos do JEV, do board ou de exemplos — o fluxo nunca trava.
+- **Como responde**: num **botão**, **por voz** («o revisar proposta») ou **digitando** no campo de
+  comando. A escolha volta ao servidor (`context.answer` em `/api/agent`) e o System Two **completa o
+  pedido original** — sem recomeçar do zero. Referência ambígua na EXECUÇÃO (`/api/actions`) segue o
+  caminho curto: a resposta remenda a ação que falhou e a execução repete **a partir dela** (o que já
+  correu no Trello não se repete).
+- **E o delete?** Continua com **hold-to-confirm** — inclusive quando a resposta aponta «apagar X»:
+  aí o cartão de confirmação surge com o alvo já certo.
 
 ---
 
@@ -194,7 +221,7 @@ Cinco capacidades novas no fluxo, todas verificadas ponta a ponta:
 - **Multi-ações heterogêneas** — um comando pode disparar várias ações **completamente diferentes**
   (*editar a descrição + marcar o prazo + comentar*, em cards distintos): o planejador LLM devolve
   **todas na ordem falada** (regra 6 do prompt) e o executor continua a confirmar apenas
-  **criar/apagar**.
+  **apagar**.
 
 ---
 
@@ -243,7 +270,9 @@ A captura grava **comprimida em lote** (detalhes na seção
   cancelamento de eco/ruído) e use o **medidor de nível ao vivo** para ver se ele capta algo.
 - **Duas vias de transcrição**: a legenda ao vivo do navegador (quando existe) aparece enquanto você
   fala e vira reserva se a OpenAI falhar.
-- **Atalhos**: `Espaço` fala/para · `Esc` cancela · `Enter` confirma (apagar exige segurar o botão).
+- **Atalhos**: `Espaço` fala/para · `Esc` cancela (confirmação ou pergunta) · `Enter` confirma
+  (apagar exige segurar o botão). Com uma **pergunta pendente**, o que você digita no campo de comando
+  é a **resposta** a ela.
 
 ---
 
@@ -287,7 +316,7 @@ campos; a tabela abaixo é a referência completa (inclui as variáveis novas da
 | `OPENROUTER_API_KEY` | **JEV** (comandos simples) e **System Two** (comandos com várias ações): sem ela o app cai no interpretador local pt-BR | [openrouter.ai/keys](https://openrouter.ai/keys) |
 | `JEV_ENABLED` | `false` desliga o JEV (fica só o interpretador local) | — |
 | `JEV_MODEL` | padrão `typesafe/jev-1.13` (use `~typesafe/jev-latest` para acompanhar versões) | — |
-| `JEV_AUTO_THRESHOLD` / `JEV_HITL_THRESHOLD` | bandas do CRUD: `auto` ≥ 0,80 · `hitl` ≥ 0,50 · abaixo disso o JEV se abstém (e pede esclarecimento) | — |
+| `JEV_AUTO_THRESHOLD` / `JEV_HITL_THRESHOLD` | bandas do CRUD: `auto` ≥ 0,80 · `hitl` ≥ 0,50 (confiança média: executa com nota) · abaixo disso o JEV se abstém (e o app pergunta com opções) | — |
 | `JEV_CARD_BATCH` | cards por chamada na cascata de listagem (padrão `16`, clamp 4–24) | — |
 | `JEV_LIST_INCLUDE` | `p` mínimo para **listar** o card (padrão `0.5`) | — |
 | `JEV_LIST_MAYBE` | `p` mínimo para listar **com ressalva «talvez»** (padrão `0.35`) | — |
@@ -334,17 +363,18 @@ escada, cobre a gramática essencial em pt-BR:
 
 | Fale algo como | Resultado |
 |---|---|
-| «cria um card chamado comprar cabo hdmi na lista a fazer com prazo amanhã» | cria (com confirmação) |
-| «apaga o card revisar proposta» | apaga (com confirmação + hold) |
+| «cria um card chamado comprar cabo hdmi na lista a fazer com prazo amanhã» | cria (sem confirmação) |
+| «apaga o card revisar proposta» | apaga (única ação com confirmação: hold-to-confirm) |
 | «move revisar proposta para fazendo» | move |
 | «coloca prazo sexta no card revisar proposta» | define prazo |
 | «comenta revisado no card revisar proposta» | comenta |
 | «arquiva o card comprar cabo hdmi» | arquiva |
 | «cria uma lista chamada Espera» | cria lista |
+| «apaga o card» (sem dizer qual) | **pergunta com opções**: «Qual card você quer apagar?» + botões com os cards reais; a resposta completa o pedido |
 | «o que eu tenho para fazer?» | lista os cards que correspondem, agrupados por coluna |
 | «o que há em fazendo?» | cascata: aprova a coluna *Fazendo* e avalia os cards dela |
 | «quais cards vencem esta semana?» | cascata por prazo, com ressalva «talvez» nos duvidosos |
-| «move revisar proposta para terminado, move comprar cabo para a fazer e cria um card chamado ligar ao contador» | **3 ações numa só fala**: o System Two (Gemini 3.8 Flash) planeia o comando inteiro e o app executa em sequência (criar confirma) |
+| «move revisar proposta para terminado, move comprar cabo para a fazer e cria um card chamado ligar ao contador» | **3 ações numa só fala**: o System Two (Gemini 3.8 Flash) planeia o comando inteiro e o app executa em sequência (sem confirmação) |
 | «quais atividades têm comentários sobre pagamento?» | **busca por características**: o pre-router manda ao System Two, que emite `search_cards` (nome, descrição, comentários, etiqueta, lista) — só responde, sem confirmar |
 | «move essas atividades para terminado» | a **última pesquisa** vira N ações concretas; sem pesquisa anterior (ou vazia) o app avisa o que faltou |
 
@@ -371,9 +401,9 @@ Datas aceitas: *hoje, amanhã, depois de amanhã, semana que vem, sexta(-feira),
 | `GET` | `/api/board` | snapshot do board (cache de 30 s; `?fresh=1` força releitura) |
 | `POST` | `/api/warm` | aquece o socket do JEV e o board (chamado quando a gravação começa) |
 | `POST` | `/api/stt` | multipart `audio` (WAV/webm/…) → transcrição (OpenAI STT) |
-| `POST` | `/api/agent` | `{ transcript, sessionId?, history?[], context? }` → plano `{ speech, actions[], needsConfirmation, provider, band, warning, listing?, search?, trace }`; com `?stream=1` responde em **SSE** (`jev` → `plan`; num comando com várias ações não há evento `jev` e o plano traz `provider: "llm"` + `trace.llm`; numa busca por características o `listing` vem com `search: {query, count}`) |
+| `POST` | `/api/agent` | `{ transcript, sessionId?, history?[], context? }` → plano `{ speech, actions[], needsConfirmation, question?, provider, band, warning, listing?, search?, trace }`; com `?stream=1` responde em **SSE** (`jev` → `plan`; num comando com várias ações não há evento `jev` e o plano traz `provider: "llm"` + `trace.llm`; numa busca por características o `listing` vem com `search: {query, count}`). `context.answer = {question, chosen}` completa o pedido com a resposta a uma pergunta pendente |
 | `POST` | `/api/confirm` | `{ text }` → `yes` \| `no` \| `unclear` (o JEV classifica o «sim»/«cancela» falado) |
-| `POST` | `/api/actions` | `{ actions[], confirmed }` → executa; **428** se criar/apagar sem `confirmed: true` |
+| `POST` | `/api/actions` | `{ actions[], confirmed, transcript? }` → executa; **428** se apagar sem `confirmed: true`; referência ambígua/desconhecida devolve **422** com `detail.question` (pergunta com opções) + `detail.failedIndex`/`detail.field` |
 | `GET` | `/api/trello/boards` | lista boards (para achar o `TRELLO_BOARD_ID`) |
 
 Contrato de erro estável em todas as rotas:
@@ -398,7 +428,9 @@ Contrato de erro estável em todas as rotas:
   direto no DOM (profundidade: frente maior e nítida, fundo menor e apagado; pausa suave no hover).
 - **O card citado vem para perto**: flutua acima do planeta com brilho, enquanto o resto escurece.
   **Criar** nasce do planeta com eco + **confete**; **apagar** dissolve com blur.
-- **Confirmação inline**: nada de modal bloqueando a órbita. Apagar usa *hold-to-confirm*.
+- **Confirmação e perguntas inline**: nada de modal bloqueando a órbita. Apagar usa
+  *hold-to-confirm* (única confirmação do app); quando falta informação, entra o **QuestionCard** com
+  as opções da pergunta de desbloqueio.
 - **Planeta = botão de gravar**: bandas de Júpiter, reage ao volume da voz e tem um estado por fase
   (ouvindo, pensando, confirmando…).
 - **Sistema visual**: um único acento (cobre) sobre azul-noite com grão sutil, **Geist** e Geist Mono
@@ -429,6 +461,7 @@ trello-assistant/
 │   │       ├── jev.js             # cliente do JEV (keep-alive, retry curto, erros classificados)
 │   │       ├── jev-planner.js     # intenção CRUD, guardas, portão de colunas, lotes de cards
 │   │       ├── planner.js         # JEV → System Two (compostos) → local + eventos de progresso
+│   │       ├── question.js        # pergunta de desbloqueio (LLM + fallback determinístico)
 │   │       ├── agent.js           # System Two (Gemini 3.8 Flash) — planeia comandos compostos
 │   │       ├── model-picker.js    # melhor voz no OpenRouter (`auto`), cache e fallback
 │   │       ├── search-engine.js   # busca por características (texto + filtros estruturais)
@@ -443,10 +476,10 @@ trello-assistant/
 └── web/
     ├── test/audio.test.ts         # VAD, WAV, reamostragem (node --test)
     └── src/
-        ├── App.tsx                # orquestração: voz → JEV/System Two → confirmação → execução
+        ├── App.tsx                # orquestração: voz → JEV/System Two → pergunta/confirmação → execução
         ├── hooks/useVoiceCapture.ts   # PCM/AudioWorklet, VAD, dispositivos, diagnóstico
         ├── lib/{api,audio,plan,session,speech,types}.ts   # `session.ts`: sessionId + histórico (≤20 turnos)
-        └── components/            # OrbitStage, Planet, CommandDock, DecisionPanel, ListRail…
+        └── components/            # OrbitStage, Planet, CommandDock, QuestionCard, ConfirmCard, DecisionPanel…
 ```
 
 ---
@@ -454,15 +487,15 @@ trello-assistant/
 ## Testes e verificação
 
 ```bash
-cd server && npm test          # offline: domínio, parser, pipeline (perguntas, colunas, lotes, roteamento JEV/System Two)
+cd server && npm test          # offline: domínio, parser, pipeline (perguntas, colunas, lotes, roteamento JEV/System Two, perguntas de desbloqueio)
 cd server && npm run check     # sintaxe de todos os módulos
 cd server && npm run eval:jev  # calibração do JEV com chamadas reais (precisa de OPENROUTER_API_KEY)
-cd web    && npm test          # 83 testes: áudio, cadeia de captura, resiliência de rede e geometria
+cd web    && npm test          # 87 testes: áudio, cadeia de captura, resiliência de rede, geometria e contrato pergunta/resposta
 cd web    && npm run build     # type-check estrito + build de produção
 ```
 
 Os testes do planner usam um transporte HTTP falso: cobrem paralelismo de cláusulas, bandas,
-retry de 503, créditos esgotados e a ausência de fallback genérico (abstenção → `actions: []` +
+retry de 503, créditos esgotados e o fluxo de pergunta com opções (abstenção → `question` +
 `warning`), sem gastar nada.
 
 > **Teste de ponta a ponta com microfone falso** (Chrome real, `--use-file-for-fake-audio-capture`):
@@ -515,8 +548,9 @@ e a `kluser-me-agent-skill`, que mantém o inventário e a saúde das rotas publ
 ## Segurança
 
 - **Chaves só no servidor** — o bundle do front nunca recebe nenhuma credencial.
-- **Confirmação obrigatória em dois níveis** para criar/apagar: modal no front **e** trava no
-  servidor (`428 confirmation_required` se chamarem `/api/actions` sem `confirmed: true`).
+- **Confirmação obrigatória em dois níveis** para **apagar**: modal no front (hold) **e** trava no
+  servidor (`428 confirmation_required` se chamarem `/api/actions` sem `confirmed: true`). Nenhuma
+  outra ação pede confirmação.
 - **Custo controlado**: retries com backoff honrando `Retry-After`, timeouts, e teto de preço
   opcional por request no OpenRouter.
 - **Tokens revogáveis**: Trello (painel de Power-Ups), OpenRouter e OpenAI (painéis de cada um).
@@ -534,12 +568,12 @@ e a `kluser-me-agent-skill`, que mantém o inventário e a saúde das rotas publ
 | Microfone não pede permissão | página sem HTTPS (fora de localhost) | publique com TLS |
 | *«O microfone «X» não captou som»* | dispositivo errado, mudo ou bloqueado | menu do microfone → escolha outro e use o **medidor de nível**; tente **áudio bruto** |
 | *«Não entendi nenhuma fala»* com som captado | falou longe, muito baixo ou nomes difíceis | fale mais perto; os nomes das suas listas/cards já vão como dica ao STT |
-| Nomes próprios saem trocados («Nem Láde» por «MemLab») | o STT erra a fonética | corrija o texto pelo lápis da legenda (o JEV pode abster-se: reformule com o nome certo) |
-| Muitos comandos pedem confirmação | confiança do JEV em pt-BR entre 0,5 e 0,8 | ajuste `JEV_AUTO_THRESHOLD` (rode `npm run eval:jev` antes de baixar) |
-| JEV indisponível (créditos, rede) | `402`/`429`/`5xx` no OpenRouter | **nada assume o plano**: o motivo aparece em «Decisões» e o app pede para reformular (falas com várias ações seguem para o System Two, não para o JEV); veja <https://openrouter.ai/credits> |
+| Nomes próprios saem trocados («Nem Láde» por «MemLab») | o STT erra a fonética | corrija o texto pelo lápis da legenda (o JEV pode abster-se: responda à pergunta ou reformule com o nome certo) |
+| Ação executada no card errado | confiança média do JEV (0,5–0,8) executa sem pedir ok | ajuste `JEV_AUTO_THRESHOLD` para cima (rode `npm run eval:jev` antes) — ou peça para desfazer |
+| JEV indisponível (créditos, rede) | `402`/`429`/`5xx` no OpenRouter | **nada assume o plano**: o motivo aparece em «Decisões» e o app pede para tentar de novo (falas com várias ações seguem para o System Two, não para o JEV); veja <https://openrouter.ai/credits> |
 | Comando com várias ações demora mais | o System Two (Gemini 3.8 Flash) planeia o comando inteiro antes de executar | normal: o painel mostra «Comandos simultâneos» com o modelo, o número de ações e o tempo |
-| «Comandos simultâneos» diz que o Gemini falhou | `402`/`429`/`5xx` no OpenRouter durante o plano composto | o fluxo volta ao JEV; se ele também se abstiver, o app pede para reformular |
-| «Não consigo operar» / «Não encontrei nada…» | JEV absteve-se (pedido ambíguo) ou nenhum card passou o limiar | reformule dizendo a lista ou o card; baixe `JEV_LIST_INCLUDE`/`JEV_LIST_MAYBE` se estiver a esconder cards |
+| «Comandos simultâneos» diz que o Gemini falhou | `402`/`429`/`5xx` no OpenRouter durante o plano composto | o fluxo volta ao JEV; se ele também se abstiver, o app pergunta com opções |
+| «Não consigo operar» / «Não encontrei nada…» | JEV absteve-se (pedido ambíguo) ou nenhum card passou o limiar | responda à **pergunta com opções** (ou reformule dizendo a lista ou o card); baixe `JEV_LIST_INCLUDE`/`JEV_LIST_MAYBE` se estiver a esconder cards |
 | Listagem traz cards a mais | critério largo por desenho (*recall-first*) | os duvidosos vêm marcados «talvez»; suba `JEV_LIST_MAYBE` (até perto de `JEV_LIST_INCLUDE`) para os excluir |
 | *«essas atividades»* / *«os da última pesquisa»* não executa nada | não houve pesquisa anterior na sessão, ou ela voltou vazia | faça uma listagem ou busca antes; o aviso em pt-BR diz qual dos dois casos ocorreu |
 | 429 do OpenRouter | rate limit | o servidor já retenta com backoff e limita os lotes a 8 em paralelo; aguarde |

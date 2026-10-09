@@ -11,12 +11,13 @@ interface ConfirmCardProps {
   onCancel: () => void;
 }
 
-/** Confirmação docada: o card citado vem para perto e a órbita continua visível. */
+/**
+ * Confirmação docada — hoje SÓ para apagar (hold-to-confirm; nenhuma outra ação
+ * pede confirmação). O card citado vem para perto e a órbita continua visível.
+ */
 export function ConfirmCard({ plan, hearing, onConfirm, onCancel }: ConfirmCardProps) {
   const destructive = plan.actions.some((action) => action.type === "delete_card");
-  const creating = plan.actions.some((action) => action.type === "create_card");
-  const uncertain = plan.band === "hitl";
-  const heading = destructive ? "Apagar é para sempre" : uncertain ? "Acho que você quer isto" : creating ? "Confirmar criação" : "Confirmar ação";
+  const heading = destructive ? "Apagar é para sempre" : "Confirmar ação";
 
   return (
     <motion.section
@@ -44,11 +45,7 @@ export function ConfirmCard({ plan, hearing, onConfirm, onCancel }: ConfirmCardP
               </li>
             ))}
           </ul>
-          {uncertain && !destructive && (
-            <p className="mt-2 text-[12px] text-muted-foreground">O JEV não ficou totalmente seguro, então peço o seu ok antes de mexer no Trello.</p>
-          )}
-          {plan.warning && <p className="mt-2 rounded-md bg-warning/10 px-2.5 py-1.5 text-[12px] text-warning">{plan.warning}</p>}
-        </div>
+          {plan.warning && <p className="mt-2 rounded-md bg-warning/10 px-2.5 py-1.5 text-[12px] text-warning">{plan.warning}</p>}        </div>
       </div>
 
       <div className="mt-3.5 flex flex-wrap items-center justify-between gap-3">

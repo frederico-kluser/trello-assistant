@@ -14,13 +14,13 @@ const board = {
   ],
 };
 
-test("criar card com lista e prazo", () => {
+test("criar card com lista e prazo (sem confirmação — só apagar confirma)", () => {
   const plan = parseTranscriptLocally("cria um card chamado comprar cabo hdmi na lista a fazer com prazo amanhã", board);
   assert.equal(plan.actions[0]?.type, "create_card");
   assert.equal(plan.actions[0]?.name, "comprar cabo hdmi");
   assert.equal(plan.actions[0]?.list, "a fazer");
   assert.ok(plan.actions[0]?.due);
-  assert.equal(plan.needsConfirmation, true);
+  assert.equal(plan.needsConfirmation, false);
 });
 
 test("criar lista não vira create_card", () => {

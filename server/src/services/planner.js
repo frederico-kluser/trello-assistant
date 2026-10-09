@@ -13,11 +13,13 @@
  *     cláusula numa cascata (intenção CRUD → colunas → cards), e o plano sai
  *     pronto. Se ele se abstém com `compound` (um trecho que afinal juntava 2+
  *     ações), o System Two recebe o comando inteiro.
- *  3. As restantes abstenções (clareza, card, lista, indisponibilidade) NÃO têm
- *     fallback genérico: respondemos com `actions: []`, banda `abstain`,
- *     `warning` com o motivo e uma fala de esclarecimento. Se o próprio System
- *     Two falhou num composto, o `warning` diz isso e ainda tentamos o JEV por
- *     cláusulas (compostos limpos podem sair por lá).
+ *  3. As restantes abstenções (clareza, card, lista, data, texto,
+ *     indisponibilidade do System Two) viram PERGUNTA COM OPÇÕES
+ *     (`services/question.js`): o que não se completou pergunta-se — a pessoa
+ *     escolhe uma opção (ou responde por voz) e a tarefa completa-se na
+ *     resposta seguinte (`context.answer` força o System Two). Se o próprio
+ *     System Two falhou num composto, o `warning` diz isso e ainda tentamos o
+ *     JEV por cláusulas (compostos limpos podem sair por lá).
  *  4. Sem chave OpenRouter (JEV desligado), o interpretador local pt-BR mantém o
  *     app vivo.
  *
@@ -42,6 +44,7 @@ import { SEARCH_ACTION, planWithMimo } from "./agent.js";
 import { parseTranscriptLocally } from "./intent.js";
 import { describeAction, normalizeActions, requiresConfirmation } from "../domain/actions.js";
 import { getBoardCached, getCommentsCached } from "./board-cache.js";
+import { generateQuestion } from "./question.js";
 import { searchCards } from "./search-engine.js";
 import { sessionStore } from "./session-store.js";
 import { getResolvedModel } from "./model-picker.js";
@@ -244,6 +247,20 @@ export function expandLastSearch(actions = [], { board, lastSearch = null, onDro
   return out;
 }
 
+/**
+ * Candidatos da cláusula que o JEV NÃO resolveu (as decisões `card`/`list` da
+ * fase 1 trazem top-3 com probabilidades): sementes para as opções da pergunta
+ * de desbloqueio — o que o modelo já considerou provável vira botão.
+ */
+export function jevCandidates(trace, code) {
+  const clause = (trace?.clauses ?? []).find((item) => item.status !== "ok") ?? trace?.clauses?.[0];
+  const wantList = code === "no_list" || code === "low_list";
+  const decision = (clause?.decisions ?? []).find((item) => item.id === (wantList ? "list" : "card"));
+  return (decision?.top ?? [])
+    .filter((entry) => entry?.key && !/^nenhum/i.test(String(entry.key)) && Number(entry.probability) > 0.05)
+    .map((entry) => ({ name: String(entry.key) }));
+}
+
 export async function planCommand({ transcript, board, context = {}, onEvent = () => {} }) {
   const started = performance.now();
   const text = String(transcript ?? "").trim();
@@ -285,7 +302,7 @@ export async function planCommand({ transcript, board, context = {}, onEvent = (
     const speech = semPesquisa && result.provider === "llm" && !actions.length ? MISSING_SEARCH_SPEECH : result.speech;
     trace.totalMs = ms(started);
     const warning = [result.warning, ...notes].filter(Boolean).join(" ") || null;
-    return { warning: null, band: null, model: null, ...result, speech, actions, warning, trace };
+    return { warning: null, band: null, model: null, question: null, ...result, speech, actions, warning, trace };
   };
 
   /**
@@ -323,6 +340,8 @@ export async function planCommand({ transcript, board, context = {}, onEvent = (
       actions: found.actions,
       // A busca é LEITURA: sozinha, não há nada para confirmar.
       needsConfirmation: found.search && !found.actions.length ? false : llm.plan.needsConfirmation,
+      // Sem ações e com pergunta do modelo: tarefa não completada → pergunta ao vivo.
+      question: found.actions.length ? null : (llm.plan.question ?? null),
       provider: "llm",
       model: llm.model,
       band: null,
@@ -340,11 +359,13 @@ export async function planCommand({ transcript, board, context = {}, onEvent = (
     return ` O planejador do comando inteiro falhou (${reason}).`;
   };
 
-  /* 1) Comandos SIMULTÂNEOS (2+ cláusulas), BUSCAS POR CARACTERÍSTICA e
-   *    REFERÊNCIAS À ÚLTIMA PESQUISA (mesmo de uma cláusula só) → o System Two
-   *    planeja tudo de uma vez: o JEV não tem contexto de sessão. */
+  /* 1) Comandos SIMULTÂNEOS (2+ cláusulas), BUSCAS POR CARACTERÍSTICA,
+   *    REFERÊNCIAS À ÚLTIMA PESQUISA (mesmo de uma cláusula só) e RESPOSTAS A
+   *    PERGUNTAS de desbloqueio → o System Two planeja tudo de uma vez: o JEV
+   *    não tem contexto de sessão nem vê a resposta. */
   const simultaneous = splitClauses(text).length > 1;
-  const needsLlm = simultaneous || isCharacteristicSearch(text) || lastRef;
+  const answered = Boolean(context.answer && String(context.answer.chosen ?? "").trim());
+  const needsLlm = simultaneous || isCharacteristicSearch(text) || lastRef || answered;
   let llmError = null;
   let llmNote = "";
   if (needsLlm && config.openrouter.apiKey) {
@@ -357,8 +378,11 @@ export async function planCommand({ transcript, board, context = {}, onEvent = (
     }
   }
 
-  /* 2) JEV — System One (comando único; ou composto limpo, após falha do LLM) */
-  if (config.jev.enabled) {
+  /* 2) JEV — System One (comando único; ou composto limpo, após falha do LLM).
+   *    Com uma RESPOSTA pendente não há nada a decidir sem ela: o JEV seria
+   *    cego à resposta e podia agir sobre o pedido errado — segue para o
+   *    interpretador local com o texto combinado. */
+  if (config.jev.enabled && !answered) {
     const jev = await planWithJev({ transcript: text, board, context: { ...context, sessionId, lastSearch } });
     trace.jev = { status: jev.status, code: jev.code ?? null, reason: jev.reason ?? null, ...jev.trace };
     // O motor desta resposta é o JEV mesmo quando ele se abstém: é dele o motivo.
@@ -391,16 +415,35 @@ export async function planCommand({ transcript, board, context = {}, onEvent = (
       }
     }
 
-    // 4) Sem fallback genérico: abstenção/indisponibilidade viram pedido de esclarecimento.
+    // 4) O que não se completou PERGUNTA-SE: a abstenção vira pergunta com
+    //    opções (LLM com fallback determinístico) em vez de "reforme".
     const reason = String(jev.reason ?? "motivo desconhecido");
-    const speech =
-      jev.status === "unavailable"
-        ? `O JEV está indisponível: ${reason.replace(/^o JEV está indisponível:\s*/i, "")} Tente novamente em instantes.`
-        : `${reason} Pode reformular ou dar mais detalhes?`;
+    if (jev.status === "unavailable") {
+      const speech = `O JEV está indisponível: ${reason.replace(/^o JEV está indisponível:\s*/i, "")} Tente novamente em instantes.`;
+      return finish({
+        speech,
+        actions: [],
+        needsConfirmation: false,
+        provider: "jev",
+        model: jev.trace.model,
+        band: "abstain",
+        warning: llmError ? `${reason}.${llmNote}` : reason,
+      });
+    }
+    const field = jev.code === "no_list" || jev.code === "low_list" ? "list" : jev.code === "no_card" || jev.code === "low_card" ? "card" : null;
+    const question = await generateQuestion({
+      transcript: text,
+      board,
+      code: String(jev.code ?? ""),
+      reason,
+      candidates: jevCandidates(jev.trace, jev.code),
+      field,
+    });
     return finish({
-      speech,
+      speech: question.prompt,
       actions: [],
       needsConfirmation: false,
+      question,
       provider: "jev",
       model: jev.trace.model,
       band: "abstain",
@@ -408,14 +451,31 @@ export async function planCommand({ transcript, board, context = {}, onEvent = (
     });
   }
 
-  /* 5) Interpretador local — o app nunca fica inutilizável sem chaves */
-  const local = parseTranscriptLocally(text, board);
+  /* 5) Interpretador local — o app nunca fica inutilizável sem chaves.
+   *    Com uma resposta pendente, ela entra no texto: é o que completa o pedido. */
+  const localText = answered ? `${text} ${String(context.answer.chosen).trim()}` : text;
+  const local = parseTranscriptLocally(localText, board);
   const actions = normalizeActions(local.actions).map((action) => ({
     ...action,
     description: describeAction(action, board),
     requiresConfirmation: requiresConfirmation(action),
   }));
   trace.engine = "local";
+  if (!actions.length) {
+    const question = await generateQuestion({
+      transcript: text,
+      board,
+      code: "local",
+      reason: "Não entendi o que fazer com esse pedido",
+    });
+    return finish({
+      speech: question.prompt,
+      actions: [],
+      needsConfirmation: false,
+      question,
+      provider: "local",
+    });
+  }
   return finish({
     speech: local.speech,
     actions,

@@ -20,7 +20,7 @@
 |---|---|---|
 | 1 chamada JEV decide intenção, card, lista, `query_kind`, guardas | 1 chamada decide intenção **CRUD**, card, lista, guardas **+ 1 pergunta `noul` por coluna** | perguntas do mesmo pedido correm em paralelo no modelo e "adding more questions does not create context-rot" ([docs.typesafe.ai/primitives](https://docs.typesafe.ai/primitives)) — o portão de colunas sai de graça na mesma chamada |
 | Consultas só sabiam responder `overview` e `list_contents`; o resto ia para o MiMo | **Toda** consulta de listagem passa pela cascata colunas → cards: o JEV avalia cada card e decide se deve ser listado | é o pedido do utilizador: "o JEV roda para todos os cards não-arquivados e vê se o que eu peço é para aquele card ser listado ou não" |
-| MiMo 2.6 Pro assumia quando o JEV se abstinha | **Sem fallback genérico** — abstenção/indisponibilidade → pedir esclarecimento. **Exceção: comandos compostos** (2+ ações numa fala) vão para o Gemini 3.8 Flash planejar tudo | erro grave só pode ser ação errada; abster e perguntar é seguro, mas comandos simultâneos são o caso legítimo do System Two |
+| MiMo 2.6 Pro assumia quando o JEV se abstinha | **Sem fallback que adivinhe** — abstenção → **pergunta COM OPÇÕES** (o LLM gera a pergunta e opções com nomes reais do board; a resposta completa a tarefa); indisponibilidade → pedir para tentar de novo. **Exceção: comandos compostos** (2+ ações numa fala) vão para o Gemini 3.8 Flash planejar tudo | erro grave só pode ser ação errada; abster e perguntar é seguro, mas comandos simultâneos são o caso legítimo do System Two |
 | Cards avaliados como opções de um `choice` (teto de 255, forçado a escolher um) | Cards avaliados em **lotes de 16**, **1 `noul` por card** (pointwise, nunca listwise) | padrão consolidado do mercado (jgrep: 16/pedido; PlotVeil: 20/pedido; "Count in code; ask one Noul per item"); `choice` tem probabilidades que somam 1 e não tem sinal de "nenhum" ([semantic_find](https://docs.typesafe.ai/cookbooks/semantic_find)) |
 
 ## 2. O pipeline
@@ -45,7 +45,7 @@ fala → STT → splitClauses (≤4 cláusulas, em paralelo)
    │ FASE 2 — colunas │   (título, datas e texto
    │  p ≥ 0,35 passa  │    extraídos deterministicamente;
    │  nenhuma? → todas│    bandas auto/hitl como hoje;
-   └──────────────────┘    criar/apagar sempre confirmam)
+   └──────────────────┘    só apagar confirma)
         │
         ▼
    ┌──────────────────────────────────┐
@@ -80,7 +80,8 @@ deleção** — cada opção do `choice` pertence a uma destas classes:
 | `criar_card` · `create_list` | **criação** | texto do card/lista vem de código |
 | `move_card` | **movimentação** | exige lista destino |
 | `rename_card` · `comment_card` · `set_due` · `remove_due` · `mark_done` · `add_checklist_item` | **edição** | texto/datas de código |
-| `delete_card` · `archive_card` | **deleção** | sempre com confirmação |
+| `delete_card` | **deleção** | ✅ sempre (hold-to-confirm) |
+| `archive_card` | **deleção** | sem confirmação |
 | `other` | **outro** | abstenção (`not_a_command`) |
 
 As restantes perguntas da fase 1 ficam como estão (`card`, `list`, `compound`,
@@ -176,12 +177,14 @@ trace.jev.listing: {
 
 `Decision` continua `{id,label,type,value,display,confidence,band,p?,top?}`.
 `trace.clauses[].decisions` mantém-se, **sem** `query_kind`. O envelope do
-`/api/agent` não muda; `trace.mimo`/`trace.fallback` ficam sempre `null`
+`/api/agent` ganha o campo opcional **`question: {prompt, options:[{label,
+value}]}`** — a pergunta de desbloqueio quando a tarefa não se completa (§6);
+`trace.mimo`/`trace.fallback` ficam sempre `null`
 (a UI passa a usar `plan.warning` para o banner). Planos do System Two
 (compostos) vêm com `provider: "llm"`, `band: null`, `trace.jev: null` e
 `trace.llm: {status, model, latencyMs}`.
 
-## 6. Comandos compostos → System Two (e sem fallback genérico)
+## 6. Comandos compostos → System Two (e sem fallback que adivinhe)
 
 - **Deteção de comandos simultâneos** (em `planner.js`): `splitClauses` devolve
   > 1 cláusula, OU o JEV dispara a guarda `compound` num trecho único → o
@@ -191,15 +194,21 @@ trace.jev.listing: {
   `trace.llm`). É ele que resolve menções borradas de voz («a atividade da
   academia» → GYM, «Ondocay» → Ondokai) e pronomes entre cláusulas.
 - Falha do System Two num composto → cai no fluxo JEV por cláusulas (que ainda
-  resolve compostos limpos); se também abstiver → esclarecimento.
-- **Restantes abstenções** (`unclear`, `low_card`, `no_card`…) e JEV
-  indisponível → `planCommand` responde com `actions: []`, `band: "abstain"`,
-  `warning: <motivo>` e fala de esclarecimento («Não consigo operar: … Pode
-  reformular?») — **sem** LLM.
-- **Nada** assume o plano às cegas. Criar/apagar continuam a confirmar sempre
-  (`requiresConfirmation`), inclusive vindos do System Two.
+  resolve compostos limpos); se também abstiver → pergunta com opções.
+- **Restantes abstenções** (`unclear`, `low_card`, `no_card`, `no_date`,
+  `no_text`…) e referências ambíguas/desconhecidas na execução → **pergunta COM
+  OPÇÕES** (`services/question.js`): o LLM redige a pergunta e as opções (nomes
+  reais do board; na execução, os candidatos são fechados), com **fallback
+  determinístico** sem chave/rede. A resposta vem por botão, voz ou texto
+  (`context.answer`) e o System Two **completa o pedido original**; no erro de
+  execução, a resposta remenda a ação (`detail.failedIndex`/`detail.field`) e a
+  execução repete a partir dela. JEV **indisponível** não pergunta: pede para
+  tentar de novo.
+- **Nada** assume o plano às cegas. **Só apagar** confirma
+  (`requiresConfirmation`), inclusive vindo do System Two; confiança média
+  (`hitl`) executa direto com a nota «confiança média» no histórico.
 - Sem chave OpenRouter (modo sem chaves), o interpretador local pt-BR continua a
-  manter o app vivo (`provider: "local"`).
+  manter o app vivo (`provider: "local"`), com as perguntas do fallback.
 - O System Two fica também reservado para geração de texto (nome/descrição/
   "motivações") em criar/editar — **futuro**, não implementado agora.
 
@@ -232,7 +241,7 @@ arrisca qualidade se o `state` crescer com ruído. Daí as travas:
 4. **Recall-first** — colunas com critério largo + ressalva "talvez" em vez de
    esconder; o único erro grave de listagem seria omitir um card que interessa.
 5. **Limiares por risco** — listar (read-only) inclui a partir de 0,5; ações
-   mutantes mantêm auto/hitl + confirmação obrigatória em criar/apagar.
+   mutantes mantêm auto/hitl + confirmação obrigatória em apagar (só apagar).
 
 ## 9. Custos e latência (ordem de grandeza)
 
@@ -244,7 +253,7 @@ arrisca qualidade se o `state` crescer com ruído. Daí as travas:
 ## 10. Validação
 
 - `npm test` (server): unitários do pipeline novo (perguntas, portão de colunas,
-  lotes, limiares, fala de listagem, ausência de fallback).
+  lotes, limiares, fala de listagem, perguntas de desbloqueio).
 - `npm run eval:jev`: casos reais sobre o board demo, incluindo listagens com
   `listingIncludes`/`listingExcludes`; **exit 1** se alguma ação errada OU
   algum card esperado faltar na listagem. Rodar sempre que mudar as perguntas.
@@ -269,7 +278,7 @@ fala → splitClauses → pre-router determinístico (isCharacteristicSearch)
          │                         → plan.listing + search {query, count}
          │
          └─ resto → JEV (fase 1 → 2 → 3, §2)
-                      └─ abstain / indisponível → esclarecimento, sem fallback genérico
+                      └─ abstain → pergunta com opções · indisponível → tentar de novo
 ```
 
 - **System Two primeiro — 2+ cláusulas**: `splitClauses` devolve > 1 cláusula, ou
@@ -289,8 +298,8 @@ fala → splitClauses → pre-router determinístico (isCharacteristicSearch)
   (read-only).
 - **JEV para o resto**: qualquer comando que não caia nos dois casos acima segue o
   pipeline normal (§2–§4), incluindo CRUD e as listagens por cascata.
-- **Abstenção não mudou**: `abstain`/indisponível → `actions: []` + `warning` +
-  pedido de reformulação, **sem fallback genérico** (§6).
+- **Abstenção vira pergunta**: `abstain` → `actions: []` + `warning` + **pergunta
+  com opções** (`plan.question`, §6); indisponível → pedido para tentar de novo.
 - **Última pesquisa acionável** (transversal aos dois caminhos): toda listagem —
   busca ou cascata — grava os ids no *session-store* (`services/session-store.js`,
   TTL **6 h**, LRU **500** sessões); o comando seguinte pode dizer *«essas

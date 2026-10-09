@@ -17,7 +17,8 @@
  *            e a fala determinística da listagem (agrupada por coluna).
  *
  * Nada assume o plano às cegas: quando o JEV se abstém ou fica indisponível, o
- * orquestrador (planner.js) responde com uma pergunta de esclarecimento. O MiMo
+ * orquestrador (planner.js) gera uma PERGUNTA COM OPÇÕES (services/question.js)
+ * para desbloquear a tarefa em vez de morrer em "reforme". O MiMo
  * deixou de ser reserva — fica no repo para geração de texto em criar/editar
  * (futuro), sem ser chamado aqui.
  *
@@ -612,7 +613,8 @@ export function splitClauses(transcript, max = 4) {
 /**
  * Ajuda determinística para menções parciais ("a data pro Laya"): quando o JEV
  * não está CERTO de que não há card, procura uma palavra da fala que exista em
- * exatamente UM card aberto. Resultado sempre vira banda `hitl` (confirmação).
+ * exatamente UM card aberto. Resultado sempre vira banda `hitl` (confiança
+ * média — executa sem pedir confirmação; só apagar confirma).
  */
 export function lexicalCard(text, cardMap) {
   const cards = [...cardMap.values()];
@@ -736,7 +738,7 @@ export function interpretClause({ text, answers, built, board, th = thresholds()
     } else {
       // O JEV não achou (ou não tem certeza de) o card: menções parciais ("o contador") são
       // comuns na fala. Se UMA palavra da fala existe em exatamente um card, é o candidato,
-      // sempre com confirmação (hitl): nunca executa às cegas.
+      // sempre com banda hitl (confiança média).
       const guess = lexicalCard(text, built.cardMap);
       if (guess) {
         targetCard = guess;
@@ -746,7 +748,7 @@ export function interpretClause({ text, answers, built, board, th = thresholds()
     if (!targetCard && pronoun?.value && pronoun.band !== "abstain" && built.lastCard) {
       used.add("pronoun");
       targetCard = built.lastCard;
-      band = worst(band, "hitl"); // pronome: sempre confirmar com a pessoa
+      band = worst(band, "hitl"); // pronome: incerto → confiança média
     }
     if (!targetCard) {
       if (card && card.value !== NO_CARD) return out(abstain("low_card", `não consigo operar: só ${pct(card.confidence)} de confiança no card (${card.display})`));
@@ -835,12 +837,15 @@ export function interpretClause({ text, answers, built, board, th = thresholds()
 
 /* ── fala determinística das ações (o JEV não gera texto) ─────────────── */
 
-function speechFor(actions, board, band) {
+function speechFor(actions, board) {
   const lines = actions.map((action) => describeShort({ ...action, ...resolveNames(action, board) }));
   const joined = lines.join(" e ");
-  const destructive = actions.some((action) => action.type === "delete_card");
-  if (band === "hitl") return `Acho que você quer ${joined}. Confirma?`;
-  return `Vou ${joined}.${destructive ? " Essa ação é definitiva e não dá para desfazer." : ""}`;
+  // Só APAGAR pede confirmação (hold-to-confirm no front) — e sempre, seja qual
+  // for a banda. O resto executa direto; a incerteza vira nota, não trava.
+  if (actions.some(requiresConfirmation)) {
+    return `Vou ${joined}. Essa ação é definitiva e não dá para desfazer. Confirma?`;
+  }
+  return `Vou ${joined}.`;
 }
 
 /** describeShort espera nomes; as ações do planner carregam ids. */
@@ -986,11 +991,14 @@ export async function planWithJev({ transcript, board, context = {} }) {
   return {
     status: "ok",
     plan: {
-      speech: [speechFor(actions, board, band), ...speechParts].join(" "),
+      speech: [speechFor(actions, board), ...speechParts].join(" "),
       actions,
       band,
-      // criar/apagar sempre confirmam; confiança média (hitl) também.
-      needsConfirmation: band === "hitl" || actions.some(requiresConfirmation),
+      // Só apagar confirma. A confiança média (hitl) executa direto e vira nota.
+      needsConfirmation: actions.some(requiresConfirmation),
+      ...(band === "hitl" && !actions.some(requiresConfirmation)
+        ? { warning: "Interpretei com confiança média e executei sem pedir confirmação — se não era isso, é só corrigir." }
+        : {}),
       ...(listing.length ? { listing } : {}),
     },
     trace,

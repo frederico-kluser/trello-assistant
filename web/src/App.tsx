@@ -10,7 +10,7 @@ import { assistantSummary, createSession, type Session } from "@/lib/session";
 import { cancelSpeech, createLiveCaptions, isMuted, setMuted, speak, type LiveCaptions } from "@/lib/speech";
 import { llmSummary } from "@/lib/plan";
 import { useVoiceCapture, type AutoStopReason } from "@/hooks/useVoiceCapture";
-import type { Board, FeedItem, JevTrace, Phase, PipelineStep, Plan, PlannedAction, StatusPayload, TCard, ToastData } from "@/lib/types";
+import type { Board, FeedItem, JevTrace, PendingQuestion, Phase, PipelineStep, Plan, PlanQuestion, PlannedAction, StatusPayload, TCard, ToastData } from "@/lib/types";
 import { OrbitStage, type PulseSignal } from "@/components/OrbitStage";
 import { Planet } from "@/components/Planet";
 import { CommandDock, type Caption } from "@/components/CommandDock";
@@ -109,6 +109,8 @@ export default function App() {
   const [caption, setCaption] = useState<Caption>({ kind: "hint" });
   const [transcript, setTranscript] = useState<string | null>(null);
   const [pendingPlan, setPendingPlan] = useState<Plan | null>(null);
+  /** Pergunta de desbloqueio pendente (tarefa não completada → pergunta com opções). */
+  const [pendingQuestion, setPendingQuestion] = useState<PendingQuestion | null>(null);
   const [hearing, setHearing] = useState(false);
   const [steps, setSteps] = useState<PipelineStep[]>(STEPS_IDLE);
   const [jevLive, setJevLive] = useState<JevTrace | null>(null);
@@ -143,9 +145,10 @@ export default function App() {
   const transcriptRef = useRef("");
   const captionsRef = useRef<LiveCaptions | null>(null);
   const finishing = useRef(false);
-  const modeRef = useRef<"command" | "confirm">("command");
+  const modeRef = useRef<"command" | "confirm" | "answer">("command");
   const pendingRef = useRef<Plan | null>(null);
-  const finishRef = useRef<(mode: "command" | "confirm", reason?: AutoStopReason | "manual") => Promise<void>>(async () => undefined);
+  const pendingQuestionRef = useRef<PendingQuestion | null>(null);
+  const finishRef = useRef<(mode: "command" | "confirm" | "answer", reason?: AutoStopReason | "manual") => Promise<void>>(async () => undefined);
   /**
    * Sessão desta aba: `sessionId` (chave do estado no servidor) + histórico das
    * trocas anteriores. Só em memória — um F5 chama `createSession()` outra vez e
@@ -158,6 +161,7 @@ export default function App() {
   phaseRef.current = phase;
   boardRef.current = board;
   pendingRef.current = pendingPlan;
+  pendingQuestionRef.current = pendingQuestion;
 
   /* ── utilidades de UI ─────────────────────────────────────── */
 
@@ -251,15 +255,16 @@ export default function App() {
   /* ── execução ─────────────────────────────────────────────── */
 
   const execute = useCallback(
-    async (plan: Plan) => {
+    async (plan: Plan, transcriptOverride?: string) => {
       setPhase("executing");
       setPendingPlan(null);
+      setPendingQuestion(null);
       setHearing(false);
       patchStep("trello", { state: "active" });
       heard("Executando no Trello…");
       const started = performance.now();
       try {
-        const response = await api.execute(plan.actions, true);
+        const response = await api.execute(plan.actions, true, transcriptOverride ?? transcriptRef.current);
         const ms = performance.now() - started;
         setBoard(response.board);
         setSyncedAt(Date.now());
@@ -287,6 +292,26 @@ export default function App() {
       } catch (err) {
         const message = err instanceof ApiError ? err.message : "Não consegui executar as ações no Trello.";
         patchStep("trello", { state: "failed" });
+        // O que não se completou PERGUNTA-SE: referência ambígua/desconhecida na
+        // execução vira pergunta com opções (a resposta remenda a ação e repete).
+        const question: PlanQuestion | null = err instanceof ApiError ? err.question : null;
+        if (question) {
+          const detail = err instanceof ApiError ? (err.detail ?? {}) : {};
+          const failedIndex = typeof detail.failedIndex === "number" ? detail.failedIndex : 0;
+          const field = typeof detail.field === "string" ? detail.field : "card";
+          const pending: PendingQuestion = {
+            question,
+            kind: "patch",
+            transcript: transcriptOverride ?? transcriptRef.current,
+            patch: { actions: plan.actions, failedIndex, field },
+          };
+          setPendingQuestion(pending);
+          setPhase("asking");
+          heard(undefined);
+          pushFeed("info", message);
+          void say(question.prompt);
+          return;
+        }
         pushFeed("error", message);
         setCaption({ kind: "error", message, hint: err instanceof ApiError ? (err.hint ?? undefined) : undefined });
         setPhase("idle");
@@ -301,6 +326,7 @@ export default function App() {
       captionsRef.current?.stop();
       setHearing(false);
       setPendingPlan(null);
+      setPendingQuestion(null);
       setFocusIds(new Set());
       setPhase("idle");
       pushFeed("info", reason);
@@ -321,7 +347,7 @@ export default function App() {
   /* ── voz ──────────────────────────────────────────────────── */
 
   const startVoice = useCallback(
-    async (mode: "command" | "confirm") => {
+    async (mode: "command" | "confirm" | "answer") => {
       cancelSpeech();
       setSpeaking(false);
       api.warm();
@@ -336,7 +362,7 @@ export default function App() {
         return;
       }
       modeRef.current = mode;
-      if (mode === "confirm") {
+      if (mode === "confirm" || mode === "answer") {
         setHearing(true);
         return;
       }
@@ -357,12 +383,13 @@ export default function App() {
   );
 
   const runCommand = useCallback(
-    async (text: string, source: "voz" | "texto" | "navegador" = "texto") => {
+    async (text: string, source: "voz" | "texto" | "navegador" = "texto", answer?: { question: string; chosen: string }) => {
       cancelSpeech();
-      transcriptRef.current = text;
+      transcriptRef.current = answer ? answer.chosen : text;
       setTranscript(text);
       setPhase("thinking");
       setPendingPlan(null);
+      setPendingQuestion(null);
       setHearing(false);
       setJevLive(null);
       setLastPlan(null);
@@ -371,18 +398,20 @@ export default function App() {
       setSpotlight(null);
       setTab("decisoes");
       setSteps((prev) => [
-        source === "texto" ? { key: "stt", state: "skipped", note: "texto digitado" } : prev[0],
+        source === "texto" ? { key: "stt", state: "skipped", note: answer ? "resposta falada" : "texto digitado" } : prev[0],
         { key: "jev", state: "active" },
         { key: "trello", state: "idle" },
       ]);
       setEngine("jev", "active");
-      pushFeed("you", text);
+      pushFeed("you", answer ? `${answer.chosen} (resposta)` : text);
       heard("Analisando o comando…");
 
       try {
         const plan = await api.agent(
           text,
-          { lastCardId: lastCardRef.current },
+          // A resposta a uma pergunta de desbloqueio viaja no contexto: o System
+          // Two completa o pedido original com ela.
+          { lastCardId: lastCardRef.current, answer: answer ?? null },
           (event) => {
             if (event.type !== "jev") return;
             if (!event.jev) {
@@ -407,7 +436,7 @@ export default function App() {
         );
 
         // Troca concluída: histórico (capado em 20×500) + contador real de turnos.
-        setSessionTurns(session.completeExchange(text, assistantSummary(plan.speech)));
+        setSessionTurns(session.completeExchange(answer ? answer.chosen : text, assistantSummary(plan.speech)));
 
         setLastPlan(plan);
         if (plan.warning) pushFeed("info", plan.warning);
@@ -455,6 +484,22 @@ export default function App() {
         }
 
         if (plan.actions.length === 0) {
+          // Tarefa NÃO completada: a pergunta gerada (LLM, com opções) desbloqueia.
+          if (plan.question) {
+            const pending: PendingQuestion = { question: plan.question, kind: "plan", transcript: text };
+            setPendingQuestion(pending);
+            setPhase("asking");
+            heard(undefined);
+            pushFeed("plan", plan.question.prompt);
+            await say(plan.question.prompt);
+            // Depois de falar a pergunta, ouve a resposta (voz), se não estiver mudo.
+            if (!isMuted() && phaseRef.current === "asking" && pendingQuestionRef.current === pending && !capture.recording) {
+              window.setTimeout(() => {
+                if (phaseRef.current === "asking" && pendingQuestionRef.current === pending && !capture.recording) void startVoice("answer");
+              }, 350);
+            }
+            return;
+          }
           heard(plan.speech);
           pushFeed("plan", plan.speech);
           setPhase("idle");
@@ -480,11 +525,11 @@ export default function App() {
         }
 
         // banda "auto": executa já; a fala vem depois, sem travar
-        await execute(plan);
+        await execute(plan, text);
       } catch (err) {
         const message = err instanceof ApiError ? err.message : "Não consegui entender o pedido.";
         // Comando que falhou também fecha a troca: pergunta + nota curta de erro.
-        setSessionTurns(session.completeExchange(text, assistantSummary(null, message)));
+        setSessionTurns(session.completeExchange(answer ? answer.chosen : text, assistantSummary(null, message)));
         patchStep("jev", { state: "failed" });
         pushFeed("error", message);
         setCaption({ kind: "error", message, hint: err instanceof ApiError ? (err.hint ?? undefined) : undefined });
@@ -494,14 +539,75 @@ export default function App() {
     [capture.recording, execute, heard, patchStep, pushFeed, say, setEngine, startVoice],
   );
 
+  /* ── resposta a uma pergunta de desbloqueio (botão, voz ou texto) ───── */
+
+  const answerQuestion = useCallback(
+    async (chosen: string) => {
+      const pending = pendingQuestionRef.current;
+      const value = chosen.trim();
+      if (!pending || !value) return;
+      capture.cancel();
+      cancelSpeech();
+      setHearing(false);
+      setPendingQuestion(null);
+
+      if (pending.kind === "patch" && pending.patch) {
+        // A resposta remenda a ação que falhou (o campo da referência) e repete
+        // a execução A PARTIR dela: o que já correu no Trello não se repete.
+        const { actions, failedIndex, field } = pending.patch;
+        const patched = actions.map((action, index) => (index === failedIndex ? { ...action, [field]: value } : action));
+        const rest = patched.slice(failedIndex);
+        pushFeed("you", `${value} (resposta)`);
+        const needsOk = rest.some((action) => action.type === "delete_card");
+        const plan: Plan = {
+          speech: "",
+          actions: rest,
+          needsConfirmation: needsOk,
+          provider: "local",
+          model: null,
+          band: null,
+          warning: null,
+          trace: { engine: "local", totalMs: 0, jev: null, llm: null },
+        };
+        if (needsOk) {
+          // delete: o hold continua a ser a ÚNICA confirmação — repete-se, já com
+          // o alvo certo, em vez de apagar por engano numa resposta mal ouvida.
+          setPendingPlan(plan);
+          setPhase("confirming");
+          heard(undefined);
+          await say("Vou apagar o card escolhido. Essa ação é definitiva e não dá para desfazer. Confirma?");
+          return;
+        }
+        await execute(plan, pending.transcript);
+        return;
+      }
+
+      // kind "plan": a resposta completa o pedido original → System Two re-planeja.
+      await runCommand(pending.transcript, "texto", { question: pending.question.prompt, chosen: value });
+    },
+    [capture, execute, heard, pushFeed, runCommand, say],
+  );
+
   const finishListening = useCallback(
-    async (mode: "command" | "confirm", reason?: AutoStopReason | "manual") => {
+    async (mode: "command" | "confirm" | "answer", reason?: AutoStopReason | "manual") => {
       if (finishing.current) return;
       finishing.current = true;
       try {
         const live = captionsRef.current?.stop() ?? "";
         captionsRef.current = null;
         const result = await capture.stop();
+
+        if (mode === "answer") {
+          setHearing(false);
+          if (!result.ok) return; // sem fala: os botões continuam na tela
+          try {
+            const stt = await api.stt(result.blob);
+            await answerQuestion(stt.text);
+          } catch {
+            pushToast("Não consegui ouvir a resposta. Use os botões.", "info");
+          }
+          return;
+        }
 
         if (mode === "confirm") {
           setHearing(false);
@@ -512,8 +618,12 @@ export default function App() {
             const answer = await api.confirm(stt.text, pending?.speech ?? "");
             pushFeed("you", `${stt.text} (resposta)`);
             if (!pendingRef.current) return;
-            if (answer.decision === "yes") confirmPlan();
-            else if (answer.decision === "no") cancelPlan();
+            if (answer.decision === "yes") {
+              // Só apagar confirma — e apagar NUNCA por voz: o hold é a trava.
+              const destructive = pendingRef.current.actions.some((action) => action.type === "delete_card");
+              if (destructive) pushToast("Apagar só confirma segurando o botão.", "info");
+              else confirmPlan();
+            } else if (answer.decision === "no") cancelPlan();
             else pushToast("Não entendi o sim ou o não. Toque em Confirmar ou Cancelar.", "info");
           } catch {
             pushToast("Não consegui ouvir a resposta. Use os botões.", "info");
@@ -578,7 +688,7 @@ export default function App() {
         finishing.current = false;
       }
     },
-    [cancelPlan, capture, confirmPlan, patchStep, pushFeed, pushToast, runCommand, setEngine],
+    [answerQuestion, cancelPlan, capture, confirmPlan, patchStep, pushFeed, pushToast, runCommand, setEngine],
   );
   finishRef.current = finishListening;
 
@@ -589,6 +699,10 @@ export default function App() {
     }
     if (phaseRef.current === "confirming") {
       void startVoice("confirm");
+      return;
+    }
+    if (phaseRef.current === "asking") {
+      void startVoice("answer");
       return;
     }
     if (phaseRef.current === "idle") void startVoice("command");
@@ -612,7 +726,7 @@ export default function App() {
           }
           return;
         }
-        if (phaseRef.current === "confirming") cancelPlan();
+        if (phaseRef.current === "confirming" || phaseRef.current === "asking") cancelPlan();
         return;
       }
       if (typing || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -783,14 +897,20 @@ export default function App() {
               phase={phase}
               caption={caption}
               plan={pendingPlan}
+              question={pendingQuestion?.question ?? null}
               hearing={hearing}
               disabled={Boolean(bootError)}
               examples={examples}
               draft={draft}
               onDraft={setDraft}
               inputRef={inputRef}
-              onSubmit={(text) => void runCommand(text, "texto")}
+              onSubmit={(text) => {
+                // Com uma pergunta pendente, o texto digitado é a RESPOSTA a ela.
+                if (pendingQuestionRef.current) void answerQuestion(text);
+                else void runCommand(text, "texto");
+              }}
               onConfirm={confirmPlan}
+              onAnswer={(value) => void answerQuestion(value)}
               onCancel={() => cancelPlan()}
             />
           </main>
@@ -862,7 +982,7 @@ export default function App() {
       </ToastStack>
 
       <div aria-live="polite" role="status" className="sr-only">
-        {phase === "listening" ? "Ouvindo" : phase === "transcribing" ? "Transcrevendo" : phase === "thinking" ? "Analisando o comando" : phase === "executing" ? "Executando no Trello" : phase === "confirming" ? "Aguardando confirmação" : "Pronto"}
+        {phase === "listening" ? "Ouvindo" : phase === "transcribing" ? "Transcrevendo" : phase === "thinking" ? "Analisando o comando" : phase === "executing" ? "Executando no Trello" : phase === "asking" ? "Aguardando a sua resposta" : phase === "confirming" ? "Aguardando confirmação" : "Pronto"}
       </div>
     </MotionUIThemeProvider>
   );

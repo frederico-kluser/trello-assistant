@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ArrowUp, Pencil, TriangleAlert } from "lucide-react";
-import type { Phase, Plan } from "@/lib/types";
+import type { Phase, Plan, PlanQuestion } from "@/lib/types";
 import { useKeyboardInset } from "@/hooks/useKeyboardInset";
 import { ConfirmCard } from "./ConfirmCard";
+import { QuestionCard } from "./QuestionCard";
 
 export type Caption =
   | { kind: "hint" }
@@ -16,6 +17,8 @@ interface CommandDockProps {
   phase: Phase;
   caption: Caption;
   plan: Plan | null;
+  /** Pergunta de desbloqueio pendente (tarefa não completada → pergunta com opções). */
+  question: PlanQuestion | null;
   hearing: boolean;
   disabled: boolean;
   examples: string[];
@@ -24,6 +27,7 @@ interface CommandDockProps {
   inputRef: RefObject<HTMLInputElement | null>;
   onSubmit: (text: string) => void;
   onConfirm: () => void;
+  onAnswer: (value: string) => void;
   onCancel: () => void;
 }
 
@@ -92,8 +96,8 @@ function CaptionView({ caption, onEdit }: { caption: Caption; onEdit: (text: str
 /** Respiro entre o dock e a borda de cima do teclado, em px. */
 const KEYBOARD_GAP = 8;
 
-/** Dock inferior: legenda ao vivo, confirmação inline e entrada de texto. */
-export function CommandDock({ phase, caption, plan, hearing, disabled, examples, draft, onDraft, inputRef, onSubmit, onConfirm, onCancel }: CommandDockProps) {
+/** Dock inferior: legenda ao vivo, pergunta/confirmação inline e entrada de texto. */
+export function CommandDock({ phase, caption, plan, question, hearing, disabled, examples, draft, onDraft, inputRef, onSubmit, onConfirm, onAnswer, onCancel }: CommandDockProps) {
   const setDraft = onDraft;
   const [editing, setEditing] = useState<string | null>(null);
   const editRef = useRef<HTMLInputElement>(null);
@@ -125,7 +129,7 @@ export function CommandDock({ phase, caption, plan, hearing, disabled, examples,
     const next = Math.min(Math.max(0, missing), insetPx);
     liftRef.current = next;
     setLift(next);
-  }, [insetPx, caption, plan, phase, editing]);
+  }, [insetPx, caption, plan, question, phase, editing]);
 
   useEffect(() => {
     if (editing !== null) editRef.current?.focus();
@@ -159,7 +163,9 @@ export function CommandDock({ phase, caption, plan, hearing, disabled, examples,
     >
       <div className="pointer-events-auto flex w-full max-w-[46rem] flex-col gap-3">
         <AnimatePresence mode="wait" initial={false}>
-          {plan && phase === "confirming" ? (
+          {question && (phase === "asking" || phase === "confirming") ? (
+            <QuestionCard key="question" question={question} hearing={hearing} onPick={onAnswer} onCancel={onCancel} />
+          ) : plan && phase === "confirming" ? (
             <ConfirmCard key="confirm" plan={plan} hearing={hearing} onConfirm={onConfirm} onCancel={onCancel} />
           ) : (
             <motion.div key={caption.kind} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18 }}>

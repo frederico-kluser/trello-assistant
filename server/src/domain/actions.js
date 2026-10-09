@@ -6,7 +6,9 @@
 import { AppError } from "../lib/errors.js";
 
 export const ACTION_TYPES = Object.freeze({
-  create_card: { confirm: true, label: "criar card" },
+  // Só APAGAR pede confirmação (hold-to-confirm no front). Tudo o resto executa
+  // direto: ações reversíveis não merecem um "confirma?" a cada comando.
+  create_card: { confirm: false, label: "criar card" },
   delete_card: { confirm: true, label: "apagar card" },
   move_card: { confirm: false, label: "mover card" },
   update_card: { confirm: false, label: "editar card" },
@@ -85,7 +87,7 @@ export function findCard(board, ref) {
 
   throw new AppError("unknown_reference", `Não encontrei nenhum card chamado «${raw}».`, {
     status: 422,
-    detail: { suggestions: cards.slice(0, 6).map((card) => card.name) },
+    detail: { field: "card", suggestions: cards.slice(0, 6).map((card) => card.name) },
   });
 }
 
@@ -110,7 +112,7 @@ export function findList(board, ref) {
 
   throw new AppError("unknown_reference", `Não encontrei nenhuma lista chamada «${raw}».`, {
     status: 422,
-    detail: { suggestions: lists.map((list) => list.name) },
+    detail: { field: "list", suggestions: lists.map((list) => list.name) },
   });
 }
 
@@ -118,7 +120,13 @@ function ambiguous(kindPhrase, ref, matches) {
   return new AppError(
     "ambiguous_reference",
     `«${ref}» bate com mais de ${kindPhrase}: ${matches.slice(0, 4).map((m) => `«${m.name}»`).join(", ")}.`,
-    { status: 422, detail: { candidates: matches.slice(0, 6).map((m) => ({ id: m.id, name: m.name })) } },
+    {
+      status: 422,
+      detail: {
+        field: kindPhrase.startsWith("uma lista") ? "list" : "card",
+        candidates: matches.slice(0, 6).map((m) => ({ id: m.id, name: m.name })),
+      },
+    },
   );
 }
 

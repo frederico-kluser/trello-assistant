@@ -717,3 +717,92 @@ test("modelo escolhido devolve 404: descarta o cache, resolve de novo e repete U
     setJevTransport(null);
   }
 });
+
+/* ── 4. pergunta de desbloqueio: o que não se completa, pergunta-se ──── */
+
+test("abstenção do JEV → pergunta com opções gerada pelo LLM (question no plano, speech = prompt)", async () => {
+  setJevTransport(jevReply(answers({ intent: choice("delete_card", 1) }))); // no_card
+  const chat = stubChat(
+    JSON.stringify({
+      prompt: "Qual card você quer apagar?",
+      options: [
+        { label: "Escrever o README", value: "Escrever o README" },
+        { label: "Comprar cabo HDMI", value: "Comprar cabo HDMI" },
+      ],
+    }),
+  );
+  try {
+    const r = await planCommand({ transcript: "apaga o card", board });
+    assert.deepEqual(r.actions, []);
+    assert.equal(r.needsConfirmation, false);
+    assert.equal(r.question.prompt, "Qual card você quer apagar?");
+    assert.equal(r.question.options.length, 2);
+    assert.equal(r.speech, r.question.prompt); // a pergunta É a fala
+    assert.equal(chat.calls.length, 1); // só a pergunta: nenhum planner LLM rodou
+    assert.match(chat.calls[0].body.messages[1].content, /MOTIVO DA FALHA/);
+  } finally {
+    chat.restore();
+    setJevTransport(null);
+  }
+});
+
+test("System Two não completou e devolveu question → a pergunta viva segue no plano", async () => {
+  forbiddenJev();
+  const chat = stubChat(
+    JSON.stringify({
+      speech: "Não sei qual você quer.",
+      needsConfirmation: false,
+      actions: [],
+      question: { prompt: "Mover qual card?", options: [{ label: "Escrever o README", value: "Escrever o README" }] },
+    }),
+  );
+  try {
+    // 2 cláusulas: o System Two planeja o comando inteiro e devolve a pergunta.
+    const r = await planCommand({ transcript: "move o readme e arquiva o cabo", board });
+    assert.equal(r.provider, "llm");
+    assert.deepEqual(r.actions, []);
+    assert.equal(r.question.prompt, "Mover qual card?");
+    assert.equal(r.speech, "Mover qual card?"); // prompt da pergunta vira fala
+  } finally {
+    chat.restore();
+    setJevTransport(null);
+  }
+});
+
+test("resposta a uma pergunta (context.answer) → System Two completa a tarefa, sem consultar o JEV", async () => {
+  const jevCalls = forbiddenJev();
+  const chat = stubChat(llmPlan([{ type: "move_card", card: "Escrever o README", list: "Feito" }], "Movendo o README."));
+  try {
+    const r = await planCommand({
+      transcript: "move para feito",
+      board,
+      context: { answer: { question: "Mover qual card?", chosen: "Escrever o README" } },
+    });
+    assert.equal(jevCalls.length, 0); // o JEV é cego à resposta: não participa
+    assert.equal(chat.calls.length, 1);
+    const user = chat.calls[0].body.messages.at(-1).content;
+    assert.match(user, /A PESSOA JÁ FOI PERGUNTADA/);
+    assert.match(user, /RESPOSTA: "Escrever o README"/);
+    assert.deepEqual(r.actions.map((a) => a.type), ["move_card"]);
+    assert.equal(r.needsConfirmation, false);
+  } finally {
+    chat.restore();
+    setJevTransport(null);
+  }
+});
+
+test("resposta que resulta em delete continua a pedir confirmação (só delete confirma)", async () => {
+  forbiddenJev();
+  const chat = stubChat(llmPlan([{ type: "delete_card", card: "Escrever o README", reason: "pedido por voz" }]));
+  try {
+    const r = await planCommand({
+      transcript: "apaga",
+      board,
+      context: { answer: { question: "Apagar qual card?", chosen: "Escrever o README" } },
+    });
+    assert.equal(r.needsConfirmation, true);
+  } finally {
+    chat.restore();
+    setJevTransport(null);
+  }
+});

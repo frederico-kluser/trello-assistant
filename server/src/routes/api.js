@@ -10,6 +10,7 @@ import { sessionStore } from "../services/session-store.js";
 import { classifyConfirmation } from "../services/jev-planner.js";
 import { warmJev } from "../services/jev.js";
 import { applyAction, describeAction, normalizeActions, requiresConfirmation } from "../domain/actions.js";
+import { QUESTION_CODES, questionFromError } from "../services/question.js";
 import { getBackend } from "../services/trello.js";
 import { getBoardCached, patchBoard, peekBoard, primeBoard, refreshBoardSoon, slimBoard } from "../services/board-cache.js";
 
@@ -98,11 +99,22 @@ apiRouter.post("/agent", async (req, res) => {
   // Histórico REAL da conversa: no máximo 20 turnos user/assistant, 500 chars cada.
   const history = normalizeHistory(req.body?.history);
   if (sessionId) sessionStore.touch(sessionId); // cada comando renova o TTL da sessão
+  // Resposta a uma pergunta de desbloqueio ("qual card?" → "o revisar proposta"):
+  // completa a tarefa original em vez de começar outra.
+  const answerRaw = req.body?.context?.answer;
+  const answer =
+    answerRaw && typeof answerRaw === "object" && String(answerRaw.chosen ?? "").trim()
+      ? {
+          question: String(answerRaw.question ?? "").replace(/\s+/g, " ").trim().slice(0, 300),
+          chosen: String(answerRaw.chosen ?? "").replace(/\s+/g, " ").trim().slice(0, 300),
+        }
+      : null;
   const context = {
     lastCardId: typeof req.body?.context?.lastCardId === "string" ? req.body.context.lastCardId : null,
     sessionId,
     history,
     lastSearch: sessionId ? sessionStore.getLastSearch(sessionId) : null,
+    answer,
   };
 
   const board = await getBoardCached({ maxAgeMs: 30_000 });
@@ -142,6 +154,8 @@ apiRouter.post("/agent", async (req, res) => {
       speech: plan.speech,
       needsConfirmation: plan.needsConfirmation || actions.some((action) => action.requiresConfirmation),
       actions,
+      // Tarefa que não se completou: pergunta com opções (o front mostra botões).
+      question: plan.question ?? null,
       provider: plan.provider,
       model: plan.model ?? null,
       band: plan.band ?? null,
@@ -176,17 +190,20 @@ apiRouter.post("/confirm", async (req, res) => {
   res.json(await classifyConfirmation(text, { pending: String(req.body?.pending ?? "") }));
 });
 
-/* ── Execução das ações (com confirmação obrigatória) ─────────────────── */
+/* ── Execução das ações (só APAGAR exige confirmação) ──────────────────── */
 
 apiRouter.post("/actions", async (req, res) => {
   const actions = normalizeActions(req.body?.actions);
   const confirmed = req.body?.confirmed === true;
+  // Texto falado que gerou o plano (opcional): contexto para a pergunta de
+  // desbloqueio quando uma referência não resolve na execução.
+  const transcript = String(req.body?.transcript ?? "").trim();
 
   if (!actions.length) {
     throw new AppError("bad_request", "Nenhuma ação para executar.", { status: 400 });
   }
 
-  // Trava de segurança: criar/apagar exige confirmação explícita do front.
+  // Trava de segurança: apagar exige confirmação explícita do front.
   if (!confirmed && actions.some(requiresConfirmation)) {
     throw new AppError("confirmation_required", "Esta ação precisa de confirmação antes de executar.", {
       status: 428,
@@ -196,12 +213,29 @@ apiRouter.post("/actions", async (req, res) => {
   const backend = getBackend();
   let board = await getBoardCached({ maxAgeMs: 30_000 });
   const results = [];
-  for (const action of actions) {
-    // O resultado devolvido pelo Trello é aplicado ao cache: a próxima ação do
-    // plano já enxerga o efeito da anterior, sem reler o board inteiro.
-    const applied = await applyAction(action, { board, backend });
-    board = patchBoard(board, [applied]);
-    results.push({ ok: true, type: applied.type, message: applied.message, spoken: applied.spoken, cardId: applied.card?.id ?? null });
+  for (let index = 0; index < actions.length; index += 1) {
+    try {
+      // O resultado devolvido pelo Trello é aplicado ao cache: a próxima ação do
+      // plano já enxerga o efeito da anterior, sem reler o board inteiro.
+      const applied = await applyAction(actions[index], { board, backend });
+      board = patchBoard(board, [applied]);
+      results.push({ ok: true, type: applied.type, message: applied.message, spoken: applied.spoken, cardId: applied.card?.id ?? null });
+    } catch (err) {
+      // O que já correu FICOU: o cache não pode fingir que nada aconteceu.
+      primeBoard(board);
+      refreshBoardSoon();
+      // O que não se completou pergunta-se: referência ambígua/desconhecida vira
+      // pergunta com opções (candidatos reais) em vez de erro seco.
+      if (err instanceof AppError && QUESTION_CODES.has(err.code)) {
+        const question = await questionFromError(err, { transcript, board });
+        throw new AppError(err.code, err.message, {
+          status: err.status,
+          hint: err.hint,
+          detail: { ...(err.detail ?? {}), failedIndex: index, question },
+        });
+      }
+      throw err;
+    }
   }
 
   primeBoard(board);

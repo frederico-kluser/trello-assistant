@@ -159,6 +159,41 @@ export interface PlanTrace {
 
 /* ── plano e ações ─────────────────────────────────────────────────────── */
 
+/** Opção de uma pergunta de desbloqueio (vira botão na UI). */
+export interface PlanQuestionOption {
+  /** O que a pessoa vê e toca. */
+  label: string;
+  /** O texto que, respondido, completa a tarefa (nome de card/lista, data, texto). */
+  value: string;
+}
+
+/**
+ * Pergunta de DESBLOQUEIO: o sistema não conseguiu completar a tarefa e gerou
+ * uma pergunta com opções (LLM, com fallback determinístico). `options: []` =
+ * pergunta aberta, respondida por voz ou texto.
+ */
+export interface PlanQuestion {
+  prompt: string;
+  options: PlanQuestionOption[];
+}
+
+/**
+ * Pergunta pendente na UI. `kind: "plan"` → a resposta refaz o plano (o pedido
+ * original + `context.answer`); `kind: "patch"` → a resposta remenda a ação que
+ * falhou na execução e reexecuta a partir dela.
+ */
+export interface PendingQuestion {
+  question: PlanQuestion;
+  kind: "plan" | "patch";
+  /** Pedido original (é ele que se completa com a resposta). */
+  transcript: string;
+  patch?: {
+    actions: PlannedAction[];
+    failedIndex: number;
+    field: string;
+  };
+}
+
 export interface PlannedAction {
   type: string;
   description: string;
@@ -180,6 +215,8 @@ export interface Plan {
   speech: string;
   actions: PlannedAction[];
   needsConfirmation: boolean;
+  /** Tarefa não completada: pergunta com opções para desbloquear (o front mostra botões). */
+  question?: PlanQuestion | null;
   /** "local" = interpretador pt-BR (sem chave OpenRouter); "llm" = System Two (comando composto). */
   provider: PlanProvider;
   model: string | null;
@@ -225,7 +262,7 @@ export interface ActionResult {
   cardId: string | null;
 }
 
-export type Phase = "idle" | "listening" | "transcribing" | "thinking" | "confirming" | "executing" | "speaking";
+export type Phase = "idle" | "listening" | "transcribing" | "thinking" | "asking" | "confirming" | "executing" | "speaking";
 
 export interface FeedItem {
   id: number;

@@ -7,6 +7,7 @@ const LABEL: Record<Phase, string> = {
   listening: "Ouvindo",
   transcribing: "Transcrevendo",
   thinking: "Pensando",
+  asking: "Responder?",
   confirming: "Confirmar?",
   executing: "Executando",
   speaking: "Falando",
@@ -27,7 +28,7 @@ export function Planet({ phase, level, size, disabled = false, onToggle }: Plane
   const halo = useTransform(smooth, [0, 1], [0.35, 1]);
   const listening = phase === "listening";
   const busy = phase === "transcribing" || phase === "thinking" || phase === "executing";
-  const canPress = !disabled && (phase === "idle" || phase === "listening" || phase === "confirming" || phase === "speaking");
+  const canPress = !disabled && (phase === "idle" || phase === "listening" || phase === "asking" || phase === "confirming" || phase === "speaking");
 
   return (
     <div className="relative grid place-items-center" style={{ width: size, height: size }}>

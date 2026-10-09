@@ -69,8 +69,9 @@ export const config = {
    * (as perguntas correm em paralelo dentro do modelo). Quando a intenção é
    * listagem, a cascata colunas → cards avalia os cards abertos em lotes.
    * Comandos ÚNICOS são dele; comandos SIMULTÂNEOS (várias ações numa fala) vão
-   * ao System Two (config.openrouter.model). Abstenções por clareza/card NÃO
-   * têm fallback genérico: o app pede esclarecimento.
+   * ao System Two (config.openrouter.model). Quando o sistema não consegue
+   * completar a tarefa (abstenção por clareza/card/lista/data), o app gera uma
+   * PERGUNTA COM OPÇÕES (services/question.js) em vez de morrer em "reformule".
    */
   jev: {
     enabled: clean(process.env.JEV_ENABLED).toLowerCase() !== "false" && Boolean(clean(process.env.OPENROUTER_API_KEY)),
@@ -80,7 +81,7 @@ export const config = {
     timeoutMs: Number.parseInt(clean(process.env.JEV_TIMEOUT_MS) || "4000", 10),
     // Bandas de ação: auto ≥ 0.80 · hitl 0.50–0.79 · abstain < 0.50. A doc do modelo sugere 0.90,
     // mas decisões REVERSÍVEIS toleram menos (medido no eval: 0.80 executa direto ~40% mais
-    // comandos corretos, com 0 ações erradas). Criar/apagar sempre confirmam, qualquer que seja a banda.
+    // comandos corretos, com 0 ações erradas). Só APAGAR confirma, qualquer que seja a banda.
     autoThreshold: num(process.env.JEV_AUTO_THRESHOLD) ?? 0.8,
     hitlThreshold: num(process.env.JEV_HITL_THRESHOLD) ?? 0.5,
     // Cascata de listagem: cards por chamada na avaliação em lotes (clamp 4–24;
